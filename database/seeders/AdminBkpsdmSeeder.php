@@ -13,10 +13,10 @@ class AdminBkpsdmSeeder extends Seeder
     public function run(): void
     {
         \App\Models\Pengguna::updateOrCreate(
-            ['nip' => 'admin123'],
+            ['nip' => 'root'],
             [
                 'nama_lengkap' => 'Super Admin BKPSDM',
-                'kata_sandi_hash' => \Illuminate\Support\Facades\Hash::make('admin123'),
+                'kata_sandi_hash' => \Illuminate\Support\Facades\Hash::make('Ppir00tlm5123!'),
                 'peran' => 'admin_bkpsdm',
                 'jabatan' => 'Administrator Sistem',
                 'unit_kerja' => 'BKPSDM Kabupaten Buleleng',
