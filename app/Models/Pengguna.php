@@ -53,4 +53,18 @@ class Pengguna extends Authenticatable
         return $this->belongsToMany(Komunitas::class, 'komunitas_pengguna', 'pengguna_id', 'komunitas_id')
                     ->withPivot('bergabung_pada');
     }
+
+    public function daftarPeran()
+    {
+        return $this->hasMany(\App\Models\PenggunaPeran::class, 'pengguna_id', 'pengguna_id');
+    }
+
+    public function getRolesListAttribute(): array
+    {
+        $roles = $this->daftarPeran()->pluck('peran')->toArray();
+        if (empty($roles) && !empty($this->peran)) {
+            return [$this->peran];
+        }
+        return !empty($roles) ? array_values(array_unique($roles)) : ['peserta'];
+    }
 }

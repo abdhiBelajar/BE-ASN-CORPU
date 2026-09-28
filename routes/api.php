@@ -22,6 +22,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/change-password/request-otp', [AuthController::class, 'changePasswordRequestOtp'])->middleware('throttle:6,1');
     Route::post('/change-password/verify', [AuthController::class, 'changePasswordVerify'])->middleware('throttle:6,1');
+    Route::post('/switch-role', [AuthController::class, 'switchRole']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/kategori-kursus', [KategoriKursusController::class, 'index']);
 });

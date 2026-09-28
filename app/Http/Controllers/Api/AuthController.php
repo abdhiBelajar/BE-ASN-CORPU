@@ -215,17 +215,94 @@ class AuthController extends Controller
         // Generate token Sanctum
         $token = $pengguna->createToken('auth_token')->plainTextToken;
 
+        // Ambil daftar peran multi-role yang sah
+        $roles = $pengguna->roles_list;
+        $activeRole = in_array($pengguna->peran, $roles, true) ? $pengguna->peran : ($roles[0] ?? 'peserta');
+
+        $komunitasId = null;
+        if (in_array('admin_komunitas', $roles, true)) {
+            $peranRecord = \App\Models\PenggunaPeran::where('pengguna_id', $pengguna->pengguna_id)
+                ->where('peran', 'admin_komunitas')
+                ->first();
+            $komunitasId = $peranRecord?->komunitas_id;
+            if (!$komunitasId) {
+                $ak = \App\Models\AdminKomunitas::where('pengguna_id', $pengguna->pengguna_id)->first();
+                $komunitasId = $ak?->komunitas_id;
+            }
+        }
+
+        $userData = $pengguna->toArray();
+        $userData['roles'] = $roles;
+        $userData['active_role'] = $activeRole;
+        if ($komunitasId) {
+            $userData['komunitas_id'] = $komunitasId;
+        }
+
         return response()->json([
             'message' => 'Login berhasil',
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'user' => $pengguna
+            'user' => $userData
         ]);
     }
     
     public function me(Request $request)
     {
-        return response()->json($request->user());
+        $user = $request->user();
+        $roles = $user->roles_list;
+        $activeRole = $request->header('X-Active-Role') ?: ($user->peran ?: ($roles[0] ?? 'peserta'));
+        if (!in_array($activeRole, $roles, true)) {
+            $activeRole = $roles[0] ?? 'peserta';
+        }
+
+        $userData = $user->toArray();
+        $userData['roles'] = $roles;
+        $userData['active_role'] = $activeRole;
+
+        return response()->json($userData);
+    }
+
+    public function switchRole(Request $request)
+    {
+        $request->validate([
+            'target_role' => 'required|in:admin_bkpsdm,admin_komunitas,peserta',
+        ]);
+
+        $user = $request->user();
+        $targetRole = $request->target_role;
+        $allowedRoles = $user->roles_list;
+
+        if (!in_array($targetRole, $allowedRoles, true)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Akses ditolak: Anda tidak memiliki wewenang untuk peran ' . $targetRole
+            ], 403);
+        }
+
+        $komunitasId = null;
+        if ($targetRole === 'admin_komunitas') {
+            $peranRecord = \App\Models\PenggunaPeran::where('pengguna_id', $user->pengguna_id)
+                ->where('peran', 'admin_komunitas')
+                ->first();
+            $komunitasId = $peranRecord?->komunitas_id;
+            if (!$komunitasId) {
+                $ak = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)->first();
+                $komunitasId = $ak?->komunitas_id;
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Berhasil beralih ke peran ' . $targetRole,
+            'active_role' => $targetRole,
+            'roles' => $allowedRoles,
+            'komunitas_id' => $komunitasId,
+            'redirect_url' => match ($targetRole) {
+                'admin_bkpsdm' => '/admin',
+                'admin_komunitas' => '/admin-komunitas',
+                default => '/',
+            }
+        ]);
     }
 
     public function logout(Request $request)
