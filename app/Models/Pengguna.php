@@ -12,10 +12,10 @@ class Pengguna extends Authenticatable
 
     protected $table = 'pengguna';
     protected $primaryKey = 'pengguna_id';
-    
+
     const CREATED_AT = 'dibuat_pada';
     const UPDATED_AT = 'diperbarui_pada';
-    
+
     protected $guarded = [];
 
     protected $hidden = [
@@ -51,7 +51,7 @@ class Pengguna extends Authenticatable
     public function komunitas()
     {
         return $this->belongsToMany(Komunitas::class, 'komunitas_pengguna', 'pengguna_id', 'komunitas_id')
-                    ->withPivot('bergabung_pada');
+            ->withPivot('bergabung_pada');
     }
 
     public function daftarPeran()

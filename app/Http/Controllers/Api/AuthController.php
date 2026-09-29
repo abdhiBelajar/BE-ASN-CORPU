@@ -245,7 +245,7 @@ class AuthController extends Controller
             'user' => $userData
         ]);
     }
-    
+
     public function me(Request $request)
     {
         $user = $request->user();
