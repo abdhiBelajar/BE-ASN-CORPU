@@ -155,6 +155,12 @@ class SimpegApiService
                 'rumpun_jabatan' => 'JF',
                 'unit_kerja' => 'testing',
             ],
+            '199208152019032013' => [
+                'nama_lengkap' => 'testing_admin_komunitas2',
+                'jabatan' => 'testing_admin_komunitas2',
+                'rumpun_jabatan' => 'JPT',
+                'unit_kerja' => 'testing',
+            ],
         ];
 
         return $mockData[$nip] ?? null;
