@@ -12,8 +12,6 @@ use App\Http\Controllers\Api\AdminBkpsdm\LaporanController;
 use App\Http\Controllers\Api\AdminBkpsdm\PusatBantuanController;
 use App\Http\Controllers\Api\AdminBkpsdm\KategoriKursusController;
 
-Route::post('/register/request-otp', [AuthController::class, 'registerRequestOtp'])->middleware('throttle:6,1');
-Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:6,1');
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:6,1');
 Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:6,1');
