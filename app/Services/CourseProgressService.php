@@ -71,10 +71,27 @@ class CourseProgressService
                 RiwayatPostTest::where('pendaftaran_id', $pendaftaran->pendaftaran_id)->delete();
             }
         } elseif ($persentase >= 100) {
-            // Jika sudah 100% materi dan kuis selesai, tetapi belum lulus post test
-            if (in_array($pendaftaran->status_pendaftaran, ['terdaftar', 'sedang_berjalan'])) {
-                $pendaftaran->status_pendaftaran = 'menunggu_post_test';
-                $isDirty = true;
+            // Cek apakah ada riwayat kelulusan post test yang sah
+            $hasPassedPostTest = RiwayatPostTest::where('pendaftaran_id', $pendaftaran->pendaftaran_id)
+                ->where('apakah_lulus', true)
+                ->exists();
+
+            if (!$hasPassedPostTest) {
+                // Jika belum lulus post test yang aktif (atau post test direset karena modul diedit)
+                if ($pendaftaran->status_pendaftaran !== 'menunggu_post_test') {
+                    $pendaftaran->status_pendaftaran = 'menunggu_post_test';
+                    $pendaftaran->diselesaikan_pada = null;
+                    $isDirty = true;
+
+                    // Hapus sertifikat jika belum lulus post test yang sah
+                    Sertifikat::where('pendaftaran_id', $pendaftaran->pendaftaran_id)->delete();
+                }
+            } else {
+                // Jika sudah ada riwayat post test lulus yang sah
+                if ($pendaftaran->status_pendaftaran !== 'lulus') {
+                    $pendaftaran->status_pendaftaran = 'lulus';
+                    $isDirty = true;
+                }
             }
         }
 
@@ -83,6 +100,36 @@ class CourseProgressService
         }
 
         return $pendaftaran;
+    }
+
+    /**
+     * Reset status kelulusan seluruh peserta setelah modul/kursus diedit dan divalidasi oleh Admin BKPSDM.
+     * Peserta yang sebelumnya sudah lulus harus mengulang Post Test (dan materi baru jika ada penambahan).
+     */
+    public static function resetCourseCompletionAfterApproval($pembelajaranId)
+    {
+        $pendaftarans = PendaftaranPembelajaran::where('pembelajaran_id', $pembelajaranId)->get();
+
+        foreach ($pendaftarans as $pendaftaran) {
+            // Hapus riwayat post test lama karena ada perubahan modul/materi/soal baru
+            RiwayatPostTest::where('pendaftaran_id', $pendaftaran->pendaftaran_id)->delete();
+
+            // Hapus sertifikat lama yang pernah diterbitkan
+            Sertifikat::where('pendaftaran_id', $pendaftaran->pendaftaran_id)->delete();
+
+            // Reset timestamp penyelesaian
+            $pendaftaran->diselesaikan_pada = null;
+
+            // Jika sebelumnya sudah lulus / selesai, kembalikan ke status aktif
+            if (in_array($pendaftaran->status_pendaftaran, ['lulus', 'selesai'])) {
+                $pendaftaran->status_pendaftaran = 'sedang_berjalan';
+            }
+
+            $pendaftaran->save();
+
+            // Sinkronisasi ulang persentase progres dan status kelulusan terbaru
+            self::syncUserProgress($pendaftaran);
+        }
     }
 
     /**

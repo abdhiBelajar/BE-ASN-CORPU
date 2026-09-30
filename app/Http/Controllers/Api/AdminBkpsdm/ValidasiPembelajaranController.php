@@ -83,6 +83,9 @@ class ValidasiPembelajaranController extends Controller
                     'status' => 'dipublikasikan',
                     'dipublikasikan_pada' => now()
                 ]);
+
+                // Reset status kelulusan peserta jika ada modul/soal post-test yang diedit dan divalidasi
+                \App\Services\CourseProgressService::resetCourseCompletionAfterApproval($pembelajaran->pembelajaran_id);
             } else {
                 $pembelajaran->update([
                     'status' => 'ditolak'
