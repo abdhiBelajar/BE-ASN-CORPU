@@ -27,21 +27,22 @@ class AuthLoginTest extends TestCase
     }
 
     /**
-     * 5. Login gagal (401, pesan sama persis) untuk: NIP tidak ada, sandi salah, akun belum aktivasi.
+     * 5. Login gagal (401) dengan informasi sisa kesempatan (3 kali maksimal).
      * Login berhasil setelah alur lupa sandi.
      */
     public function test_login_failure_messages_are_identical_and_login_succeeds_after_reset(): void
     {
-        $expectedMsg = 'NIP atau kata sandi salah. Jika ini pertama kali Anda masuk atau Anda lupa kata sandi, gunakan "Lupa Kata Sandi".';
+        $expectedMsg1 = 'NIP atau kata sandi salah. Sisa kesempatan mencoba: 2 kali lagi. Jika ini pertama kali Anda masuk atau Anda lupa kata sandi, gunakan "Lupa Kata Sandi".';
+        $expectedMsg2 = 'NIP atau kata sandi salah. Sisa kesempatan mencoba: 1 kali lagi. Jika ini pertama kali Anda masuk atau Anda lupa kata sandi, gunakan "Lupa Kata Sandi".';
 
-        // 1. NIP tidak ada
+        // 1. NIP tidak ada (percobaan ke-1 untuk NIP 999...)
         $resp1 = $this->postJson('/api/login', [
             'nip' => '999999999999999999',
             'password' => 'WrongPass123!',
         ]);
-        $resp1->assertStatus(401)->assertJson(['message' => $expectedMsg]);
+        $resp1->assertStatus(401)->assertJson(['message' => $expectedMsg1, 'remaining_attempts' => 2]);
 
-        // 2. Akun ada, tetapi belum aktivasi (kata_sandi_diatur_pada = null)
+        // 2. Akun ada, tetapi belum aktivasi (percobaan ke-1 untuk NIP 199001012020011010)
         $user = new Pengguna([
             'nip' => '199001012020011010',
             'nama_lengkap' => 'Belum Aktivasi',
@@ -55,18 +56,18 @@ class AuthLoginTest extends TestCase
             'nip' => '199001012020011010',
             'password' => 'AnyPassword123!',
         ]);
-        $resp2->assertStatus(401)->assertJson(['message' => $expectedMsg]);
+        $resp2->assertStatus(401)->assertJson(['message' => $expectedMsg1, 'remaining_attempts' => 2]);
 
-        // 3. Akun sudah aktivasi, tetapi kata sandi salah
+        // 3. Akun sudah aktivasi, tetapi kata sandi salah (percobaan ke-2 untuk NIP 199001012020011010)
         $user->setKataSandiPengguna('KataSandiBenar123!')->save();
 
         $resp3 = $this->postJson('/api/login', [
             'nip' => '199001012020011010',
             'password' => 'KataSandiSalah123!',
         ]);
-        $resp3->assertStatus(401)->assertJson(['message' => $expectedMsg]);
+        $resp3->assertStatus(401)->assertJson(['message' => $expectedMsg2, 'remaining_attempts' => 1]);
 
-        // 4. Login sukses dengan kata sandi yang benar
+        // 4. Login sukses dengan kata sandi yang benar (counter ter-reset)
         $resp4 = $this->postJson('/api/login', [
             'nip' => '199001012020011010',
             'password' => 'KataSandiBenar123!',
@@ -288,23 +289,111 @@ class AuthLoginTest extends TestCase
     }
 
     /**
-     * 10. Rate limit login: percobaan ke-6 dalam semenit mengembalikan 429.
+     * 10. Kesempatan 3 kali memasukkan password:
+     * Percobaan ke-1 dan ke-2 menghasilkan 401 dengan informasi sisa kesempatan.
+     * Percobaan ke-3 (ketiganya false) langsung menghasilkan 429 Too Many Requests (lockout 3 menit).
+     * Percobaan berikutnya saat lockout tetap 429 dengan retry_after.
      */
-    public function test_login_rate_limiting(): void
+    public function test_login_three_attempts_lockout(): void
     {
-        for ($i = 1; $i <= 5; $i++) {
-            $resp = $this->postJson('/api/login', [
-                'nip' => '199601012020011060',
-                'password' => 'WrongPass123!',
-            ]);
-            $resp->assertStatus(401);
-        }
+        $testNip = '199601012020011060';
 
-        // Percobaan ke-6 harus terkena 429 Too Many Requests
-        $resp6 = $this->postJson('/api/login', [
-            'nip' => '199601012020011060',
+        // Percobaan 1: Gagal, sisa 2 kali
+        $resp1 = $this->postJson('/api/login', [
+            'nip' => $testNip,
             'password' => 'WrongPass123!',
         ]);
-        $resp6->assertStatus(429);
+        $resp1->assertStatus(401)
+            ->assertJson([
+                'remaining_attempts' => 2,
+                'locked' => false,
+            ]);
+
+        // Percobaan 2: Gagal, sisa 1 kali
+        $resp2 = $this->postJson('/api/login', [
+            'nip' => $testNip,
+            'password' => 'WrongPass123!',
+        ]);
+        $resp2->assertStatus(401)
+            ->assertJson([
+                'remaining_attempts' => 1,
+                'locked' => false,
+            ]);
+
+        // Percobaan 3: Ketiganya false -> Langsung Lockout 429
+        $resp3 = $this->postJson('/api/login', [
+            'nip' => $testNip,
+            'password' => 'WrongPass123!',
+        ]);
+        $resp3->assertStatus(429)
+            ->assertJson([
+                'remaining_attempts' => 0,
+                'locked' => true,
+            ]);
+        $this->assertNotEmpty($resp3->json('retry_after'));
+
+        // Percobaan 4: Masih dalam masa lockout -> 429
+        $resp4 = $this->postJson('/api/login', [
+            'nip' => $testNip,
+            'password' => 'WrongPass123!',
+        ]);
+        $resp4->assertStatus(429);
+    }
+
+    /**
+     * 11. Aturan kombinasi ketat password:
+     * Wajib mengandung huruf besar, huruf kecil, angka, simbol/karakter khusus, dan minimal 8 karakter.
+     */
+    public function test_strict_password_rules_require_symbols_and_complexity(): void
+    {
+        $user = new Pengguna([
+            'nip' => '199801012020011088',
+            'nama_lengkap' => 'Uji Sandi Ketat',
+            'email' => 'sandi.ketat@bulelengkab.go.id',
+            'peran' => 'peserta',
+            'status' => 'aktif',
+        ]);
+        $user->acakKataSandi()->save();
+
+        $otp = app(OtpService::class)->terbitkan('reset', $user->nip);
+
+        // Tanpa simbol (hanya huruf dan angka) harus ditolak 422
+        $respNoSymbol = $this->postJson('/api/reset-password', [
+            'nip' => $user->nip,
+            'otp' => $otp,
+            'password_baru' => 'PasswordKuat123',
+            'password_baru_confirmation' => 'PasswordKuat123',
+        ]);
+        $respNoSymbol->assertStatus(422)
+            ->assertJsonValidationErrors(['password_baru']);
+
+        // Tanpa huruf besar harus ditolak 422
+        $respNoUpper = $this->postJson('/api/reset-password', [
+            'nip' => $user->nip,
+            'otp' => $otp,
+            'password_baru' => 'passwordkuat123!',
+            'password_baru_confirmation' => 'passwordkuat123!',
+        ]);
+        $respNoUpper->assertStatus(422)
+            ->assertJsonValidationErrors(['password_baru']);
+
+        // Tanpa angka harus ditolak 422
+        $respNoNumber = $this->postJson('/api/reset-password', [
+            'nip' => $user->nip,
+            'otp' => $otp,
+            'password_baru' => 'PasswordKuatAman!',
+            'password_baru_confirmation' => 'PasswordKuatAman!',
+        ]);
+        $respNoNumber->assertStatus(422)
+            ->assertJsonValidationErrors(['password_baru']);
+
+        // Kombinasi lengkap: huruf besar, kecil, angka, simbol (misal 'KuatAman123!') berhasil
+        $respSuccess = $this->postJson('/api/reset-password', [
+            'nip' => $user->nip,
+            'otp' => $otp,
+            'password_baru' => 'KuatAman123!',
+            'password_baru_confirmation' => 'KuatAman123!',
+        ]);
+        $respSuccess->assertStatus(200);
     }
 }

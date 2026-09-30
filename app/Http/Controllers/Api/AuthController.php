@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Pengguna;
 use App\Services\SimpegApiService;
 use App\Services\OtpService;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
@@ -27,7 +28,8 @@ class AuthController extends Controller
 
     /**
      * Autentikasi Pengguna (Login)
-     * Menggunakan NIP (atau Email) dan Password kustom yang telah dibuat
+     * Menggunakan NIP (atau Email) dan Password kustom yang telah dibuat.
+     * Dibatasi 3 kali kesempatan gagal; jika 3 kali salah, dikunci selama 3 menit.
      */
     public function login(Request $request)
     {
@@ -37,6 +39,21 @@ class AuthController extends Controller
         ]);
 
         $identifier = trim($request->nip);
+        $throttleKey = 'login_failed:' . strtolower($identifier) . '|' . $request->ip();
+        $maxAttempts = 3;
+        $lockoutSeconds = 180; // 3 menit waktu tunggu setelah 3 kali gagal
+
+        // Cek jika akun/IP sedang dalam masa lockout akibat 3x salah password
+        if (RateLimiter::tooManyAttempts($throttleKey, $maxAttempts)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+            $minutes = ceil($seconds / 60);
+            return response()->json([
+                'message' => "Terlalu banyak percobaan login yang gagal. Akun Anda dikunci sementara. Silakan tunggu {$minutes} menit ({$seconds} detik) sebelum mencoba kembali.",
+                'retry_after' => $seconds,
+                'remaining_attempts' => 0,
+                'locked' => true,
+            ], 429)->header('Retry-After', $seconds);
+        }
 
         $pengguna = Pengguna::where('nip', $identifier)
             ->orWhere('email', $identifier)
@@ -47,10 +64,30 @@ class AuthController extends Controller
         $cocok = Hash::check($request->password, $pengguna?->kata_sandi_hash ?? $dummy);
 
         if (!$pengguna || !$cocok || !$pengguna->sudah_aktivasi) {
+            RateLimiter::hit($throttleKey, $lockoutSeconds);
+            $attempts = RateLimiter::attempts($throttleKey);
+            $remaining = max(0, $maxAttempts - $attempts);
+
+            if ($remaining === 0) {
+                $seconds = RateLimiter::availableIn($throttleKey);
+                $minutes = ceil($seconds / 60);
+                return response()->json([
+                    'message' => "Kata sandi salah. Anda telah mencapai batas maksimal {$maxAttempts} kali percobaan. Akun Anda dikunci sementara, silakan tunggu {$minutes} menit ({$seconds} detik) sebelum mencoba kembali.",
+                    'retry_after' => $seconds,
+                    'remaining_attempts' => 0,
+                    'locked' => true,
+                ], 429)->header('Retry-After', $seconds);
+            }
+
             return response()->json([
-                'message' => 'NIP atau kata sandi salah. Jika ini pertama kali Anda masuk atau Anda lupa kata sandi, gunakan "Lupa Kata Sandi".'
+                'message' => "NIP atau kata sandi salah. Sisa kesempatan mencoba: {$remaining} kali lagi. Jika ini pertama kali Anda masuk atau Anda lupa kata sandi, gunakan \"Lupa Kata Sandi\".",
+                'remaining_attempts' => $remaining,
+                'locked' => false,
             ], 401);
         }
+
+        // Login sukses, bersihkan counter kegagalan
+        RateLimiter::clear($throttleKey);
 
         if ($pengguna->status !== 'aktif') {
             return response()->json(['message' => 'Akun Anda sedang dinonaktifkan. Hubungi administrator BKPSDM.'], 403);
@@ -297,6 +334,7 @@ class AuthController extends Controller
 
         $pengguna->setKataSandiPengguna($request->password_baru)->save();
         $pengguna->tokens()->delete();
+        RateLimiter::clear('login_failed:' . strtolower($pengguna->nip) . '|' . $request->ip());
 
         return response()->json([
             'message' => 'Kata sandi berhasil dibuat. Silakan masuk dengan kata sandi baru Anda.'

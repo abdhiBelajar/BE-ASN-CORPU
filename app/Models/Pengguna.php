@@ -55,7 +55,11 @@ class Pengguna extends Authenticatable
     {
         return [
             'required', 'string', 'confirmed',
-            Password::min(10)->letters()->mixedCase()->numbers(),
+            Password::min(8)
+                ->letters()
+                ->mixedCase()
+                ->numbers()
+                ->symbols(),
             function ($attr, $value, $fail) use ($nip) {
                 if ($nip && (str_contains($value, $nip) || str_contains($value, substr($nip, -8)))) {
                     $fail('Kata sandi tidak boleh mengandung NIP Anda.');
