@@ -2,8 +2,11 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use App\Models\Pengguna;
+use App\Models\PenggunaPeran;
+use App\Models\Komunitas;
+use App\Models\AdminKomunitas;
 
 class AdminKomunitasSeeder extends Seeder
 {
@@ -12,21 +15,31 @@ class AdminKomunitasSeeder extends Seeder
      */
     public function run(): void
     {
-        $adminKomunitas = \App\Models\Pengguna::updateOrCreate(
-            ['nip' => '199001012026011002'],
-            [
+        if (!app()->environment('local', 'testing')) {
+            return;
+        }
+
+        $adminKomunitas = Pengguna::where('nip', '199001012026011002')->first();
+        if (!$adminKomunitas) {
+            $adminKomunitas = new Pengguna([
+                'nip' => '199001012026011002',
                 'nama_lengkap' => 'Admin Komunitas JF Kesehatan',
-                'kata_sandi_hash' => \Illuminate\Support\Facades\Hash::make('admin123'),
                 'peran' => 'admin_komunitas',
                 'rumpun_jabatan' => 'JF',
                 'status' => 'aktif',
-            ]
-        );
+            ]);
+            $adminKomunitas->acakKataSandi()->save();
+        }
 
-        $adminBkpsdm = \App\Models\Pengguna::where('peran', 'admin_bkpsdm')->first();
+        PenggunaPeran::firstOrCreate([
+            'pengguna_id' => $adminKomunitas->pengguna_id,
+            'peran' => 'admin_komunitas',
+        ]);
+
+        $adminBkpsdm = Pengguna::where('peran', 'admin_bkpsdm')->first();
         $bkpsdmId = $adminBkpsdm ? $adminBkpsdm->pengguna_id : $adminKomunitas->pengguna_id;
 
-        $komunitas = \App\Models\Komunitas::updateOrCreate(
+        $komunitas = Komunitas::updateOrCreate(
             ['nama_komunitas' => 'Komunitas JF Kesehatan'],
             [
                 'dibuat_oleh_pengguna_id' => $bkpsdmId,
@@ -36,7 +49,7 @@ class AdminKomunitasSeeder extends Seeder
             ]
         );
 
-        \App\Models\AdminKomunitas::firstOrCreate([
+        AdminKomunitas::firstOrCreate([
             'komunitas_id' => $komunitas->komunitas_id,
             'pengguna_id' => $adminKomunitas->pengguna_id,
         ]);

@@ -35,6 +35,7 @@ class SimpegApiService
                         'jabatan' => $data['jabatan'] ?? null,
                         'rumpun_jabatan' => $data['rumpun_jabatan'] ?? 'JF',
                         'unit_kerja' => $data['unit_kerja'] ?? null,
+                        'email' => $data['email'] ?? null,
                     ];
                 }
 
@@ -66,6 +67,7 @@ class SimpegApiService
                 'jabatan' => $pegawai->jabatan,
                 'rumpun_jabatan' => $pegawai->rumpun_jabatan,
                 'unit_kerja' => $pegawai->unit_kerja,
+                'email' => $pegawai->email,
             ];
         }
 

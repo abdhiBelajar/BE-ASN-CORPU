@@ -4,8 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\PegawaiSimpeg;
-use App\Models\Pengguna;
-use Illuminate\Support\Facades\Hash;
+use App\Services\PenggunaProvisioningService;
 use Illuminate\Support\Facades\DB;
 
 class ImportAsnCommand extends Command
@@ -17,7 +16,7 @@ class ImportAsnCommand extends Command
      */
     protected $signature = 'simpeg:import 
                             {file? : Path ke file CSV data ASN} 
-                            {--create-accounts : Buatkan juga langsung akun login di tabel pengguna}';
+                            {--tanpa-akun : Jangan otomatis membuat atau memperbarui akun pengguna}';
 
     /**
      * The console command description.
@@ -52,7 +51,7 @@ class ImportAsnCommand extends Command
             return 1;
         }
 
-        $createAccounts = $this->option('create-accounts');
+        $tanpaAkun = (bool) $this->option('tanpa-akun');
         $this->info("Memulai import data ASN dari: {$filePath}");
 
         $handle = fopen($filePath, 'r');
@@ -74,7 +73,6 @@ class ImportAsnCommand extends Command
 
         $totalRows = 0;
         $simpegCount = 0;
-        $accountCount = 0;
 
         DB::beginTransaction();
         try {
@@ -93,6 +91,10 @@ class ImportAsnCommand extends Command
                 $jenisJabatan = strtoupper(trim($data['JENIS JABATAN'] ?? ''));
                 $unitKerja = trim($data['UNIT KERJA'] ?? '');
 
+                // Kolom email opsional
+                $emailRaw = strtolower(trim((string) ($data['EMAIL'] ?? '')));
+                $emailValid = filter_var($emailRaw, FILTER_VALIDATE_EMAIL) ? $emailRaw : null;
+
                 if (empty($nip) || !is_numeric($nip)) {
                     continue;
                 }
@@ -110,37 +112,21 @@ class ImportAsnCommand extends Command
                 }
 
                 // 1. Simpan ke database SIMPEG lokal
+                $pegawaiData = [
+                    'nama_lengkap' => $nama,
+                    'jabatan' => $jabatan ?: null,
+                    'rumpun_jabatan' => $rumpun,
+                    'unit_kerja' => $unitKerja ?: null,
+                ];
+                if ($emailValid) {
+                    $pegawaiData['email'] = $emailValid;
+                }
+
                 PegawaiSimpeg::updateOrCreate(
                     ['nip' => $nip],
-                    [
-                        'nama_lengkap' => $nama,
-                        'jabatan' => $jabatan ?: null,
-                        'rumpun_jabatan' => $rumpun,
-                        'unit_kerja' => $unitKerja ?: null,
-                    ]
+                    $pegawaiData
                 );
                 $simpegCount++;
-
-                // 2. Opsi pembuatan akun langsung jika diminta
-                if ($createAccounts) {
-                    $defaultPassword = Hash::make($nip);
-                    $emailPlaceholder = "{$nip}@asn.bulelengkab.go.id";
-
-                    Pengguna::updateOrCreate(
-                        ['nip' => $nip],
-                        [
-                            'nama_lengkap' => $nama,
-                            'email' => $emailPlaceholder,
-                            'kata_sandi_hash' => $defaultPassword,
-                            'peran' => 'peserta',
-                            'jabatan' => $jabatan ?: null,
-                            'rumpun_jabatan' => $rumpun,
-                            'unit_kerja' => $unitKerja ?: null,
-                            'status' => 'aktif',
-                        ]
-                    );
-                    $accountCount++;
-                }
             }
 
             DB::commit();
@@ -148,10 +134,12 @@ class ImportAsnCommand extends Command
 
             $this->info("Import berhasil!");
             $this->line("- Total data ASN diproses: {$simpegCount} pegawai terdaftar di data SIMPEG lokal.");
-            if ($createAccounts) {
-                $this->line("- Total akun dibuat di tabel pengguna: {$accountCount} akun (Password default: NIP).");
-            } else {
-                $this->line("- ASN sekarang dapat langsung mendaftar via halaman registrasi menggunakan NIP mereka.");
+
+            if (!$tanpaAkun) {
+                $this->info("Menjalankan provisioning akun pengguna...");
+                $stats = app(PenggunaProvisioningService::class)->provisionSemua();
+                $this->line("- Total akun dibuat: {$stats['dibuat']}, diperbarui: {$stats['diperbarui']}, dilewati: {$stats['dilewati']}.");
+                $this->line("- Akun dibuat dengan sandi acak. Pegawai membuat sandi lewat Lupa Kata Sandi (perlu email terdaftar).");
             }
         } catch (\Throwable $e) {
             DB::rollBack();

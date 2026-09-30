@@ -6,19 +6,23 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Pengguna;
 use App\Services\SimpegApiService;
+use App\Services\OtpService;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use App\Mail\OtpMail;
-use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
     protected $simpegApi;
+    protected $otp;
 
-    public function __construct(SimpegApiService $simpegApi)
+    public function __construct(SimpegApiService $simpegApi, OtpService $otp)
     {
         $this->simpegApi = $simpegApi;
+        $this->otp = $otp;
     }
 
     /**
@@ -33,31 +37,23 @@ class AuthController extends Controller
         ]);
 
         $identifier = trim($request->nip);
-        $password = $request->password;
 
-        // Cari akun berdasarkan NIP atau Email
         $pengguna = Pengguna::where('nip', $identifier)
             ->orWhere('email', $identifier)
             ->first();
 
-        if (!$pengguna) {
-            return response()->json([
-                'message' => 'Akun dengan NIP tersebut belum terdaftar. Pastikan akun Anda sudah terdaftar di SIMPEG atau hubungi administrator BKPSDM.'
-            ], 404);
-        }
+        // Hash::check selalu dijalankan agar waktu respons tidak membedakan NIP ada/tidak ada.
+        $dummy = Cache::rememberForever('auth:dummy_hash', fn () => Hash::make(Str::random(16)));
+        $cocok = Hash::check($request->password, $pengguna?->kata_sandi_hash ?? $dummy);
 
-        // Cek kecocokan kata sandi
-        if (!Hash::check($password, $pengguna->kata_sandi_hash)) {
+        if (!$pengguna || !$cocok || !$pengguna->sudah_aktivasi) {
             return response()->json([
-                'message' => 'Kata sandi salah. Silakan periksa kembali.'
+                'message' => 'NIP atau kata sandi salah. Jika ini pertama kali Anda masuk atau Anda lupa kata sandi, gunakan "Lupa Kata Sandi".'
             ], 401);
         }
 
-        // Cek apakah akun aktif
         if ($pengguna->status !== 'aktif') {
-            return response()->json([
-                'message' => 'Akun Anda sedang dinonaktifkan. Hubungi administrator BKPSDM.'
-            ], 403);
+            return response()->json(['message' => 'Akun Anda sedang dinonaktifkan. Hubungi administrator BKPSDM.'], 403);
         }
 
         // Sinkronisasi data dengan SIMPEG agar selalu mutakhir
@@ -183,13 +179,17 @@ class AuthController extends Controller
             ], 400);
         }
 
-        $otp = (string) rand(100000, 999999);
-        \Illuminate\Support\Facades\Cache::put('otp_change_' . $pengguna->pengguna_id, $otp, now()->addMinutes(10));
+        $otp = $this->otp->terbitkan('ubah', (string) $pengguna->pengguna_id);
+        if (!$otp) {
+            return response()->json([
+                'message' => 'Silakan tunggu sebelum meminta kode OTP kembali.'
+            ], 429);
+        }
 
         try {
-            \Illuminate\Support\Facades\Mail::to($pengguna->email)->send(new \App\Mail\OtpMail($otp));
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Gagal kirim email OTP ubah password: ' . $e->getMessage());
+            Mail::to($pengguna->email)->send(new OtpMail($otp));
+        } catch (\Throwable $e) {
+            Log::error('Gagal kirim email OTP ubah password: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Gagal mengirim email OTP. Silakan coba beberapa saat lagi.'
             ], 500);
@@ -202,13 +202,13 @@ class AuthController extends Controller
 
     public function changePasswordVerify(Request $request)
     {
-        $request->validate([
-            'otp' => 'required|string',
-            'password_sebelumnya' => 'required|string',
-            'password_baru' => 'required|string|min:8|confirmed',
-        ]);
-
         $pengguna = $request->user();
+
+        $request->validate([
+            'otp' => 'required|digits:6',
+            'password_sebelumnya' => 'required|string',
+            'password_baru' => Pengguna::aturanKataSandi($pengguna->nip),
+        ]);
 
         // Validasi password lama
         if (!Hash::check($request->password_sebelumnya, $pengguna->kata_sandi_hash)) {
@@ -218,11 +218,10 @@ class AuthController extends Controller
         }
 
         // Validasi OTP
-        $cachedOtp = \Illuminate\Support\Facades\Cache::get('otp_change_' . $pengguna->pengguna_id);
-        if (!$cachedOtp || $cachedOtp !== $request->otp) {
+        if (!$this->otp->verifikasi('ubah', (string) $pengguna->pengguna_id, $request->otp)) {
             return response()->json([
                 'message' => 'Kode OTP tidak valid atau sudah kedaluwarsa.'
-            ], 400);
+            ], 422);
         }
 
         if (Hash::check($request->password_baru, $pengguna->kata_sandi_hash)) {
@@ -231,11 +230,13 @@ class AuthController extends Controller
             ], 400);
         }
 
-        $pengguna->update([
-            'kata_sandi_hash' => Hash::make($request->password_baru)
-        ]);
+        $pengguna->setKataSandiPengguna($request->password_baru)->save();
 
-        \Illuminate\Support\Facades\Cache::forget('otp_change_' . $pengguna->pengguna_id);
+        // Hapus token lain selain sesi aktif
+        $currentTokenId = $pengguna->currentAccessToken()?->id;
+        if ($currentTokenId) {
+            $pengguna->tokens()->where('id', '!=', $currentTokenId)->delete();
+        }
 
         return response()->json([
             'message' => 'Password berhasil diubah.'
@@ -249,75 +250,56 @@ class AuthController extends Controller
             'email' => 'required|email',
         ]);
 
-        $pengguna = Pengguna::where('nip', $request->nip)->first();
+        $pesan = 'Jika NIP dan email sesuai dengan data kami, kode OTP telah dikirim ke email tersebut.';
 
-        if (!$pengguna) {
-            return response()->json([
-                'message' => 'NIP tidak ditemukan.'
-            ], 404);
+        $pengguna = Pengguna::where('nip', trim($request->nip))->first();
+
+        $layak = $pengguna
+            && $pengguna->status === 'aktif'
+            && filled($pengguna->email)
+            && strtolower(trim($pengguna->email)) === strtolower(trim($request->email));
+
+        if ($layak) {
+            $otp = $this->otp->terbitkan('reset', $pengguna->nip);   // null = masih cooldown
+            if ($otp) {
+                $email = $pengguna->email;
+                dispatch(function () use ($email, $otp) {
+                    try {
+                        Mail::to($email)->send(new OtpMail($otp));
+                    } catch (\Throwable $e) {
+                        Log::error('Gagal kirim OTP reset: ' . $e->getMessage());
+                    }
+                })->afterResponse();   // waktu respons sama untuk kasus layak/tidak layak
+            }
         }
 
-        // Jangan izinkan binding email baru secara sepihak jika email kosong
-        if (empty($pengguna->email)) {
-            return response()->json([
-                'message' => 'Akun belum memiliki email resmi terdaftar. Silakan hubungi administrator BKPSDM.'
-            ], 400);
-        }
-
-        if (strtolower(trim($pengguna->email)) !== strtolower(trim($request->email))) {
-            return response()->json([
-                'message' => 'Email tidak cocok dengan data pengguna yang terdaftar.'
-            ], 400);
-        }
-
-        $otp = (string) rand(100000, 999999);
-        \Illuminate\Support\Facades\Cache::put('otp_reset_' . $pengguna->nip, $otp, now()->addMinutes(10));
-
-        try {
-            \Illuminate\Support\Facades\Mail::to($pengguna->email)->send(new \App\Mail\OtpMail($otp));
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Gagal kirim email OTP reset password: ' . $e->getMessage());
-            return response()->json([
-                'message' => 'Gagal mengirim email OTP. Silakan coba beberapa saat lagi.'
-            ], 500);
-        }
-
-        return response()->json([
-            'message' => 'Kode OTP telah dikirim ke email Anda.'
-        ]);
+        return response()->json(['message' => $pesan]);   // SELALU 200 dan pesan sama
     }
 
     public function resetPassword(Request $request)
     {
         $request->validate([
             'nip' => 'required|string',
-            'otp' => 'required|string',
-            'password_baru' => 'required|string|min:8|confirmed',
+            'otp' => 'required|digits:6',
+            'password_baru' => Pengguna::aturanKataSandi($request->nip),
         ]);
 
         $pengguna = Pengguna::where('nip', $request->nip)->first();
 
-        if (!$pengguna) {
-            return response()->json([
-                'message' => 'NIP tidak ditemukan.'
-            ], 404);
-        }
+        // Panggil verifikasi walau $pengguna null agar perilaku timing sama
+        $otpValid = $this->otp->verifikasi('reset', $request->nip, $request->otp);
 
-        $cachedOtp = \Illuminate\Support\Facades\Cache::get('otp_reset_' . $pengguna->nip);
-        if (!$cachedOtp || $cachedOtp !== $request->otp) {
+        if (!$pengguna || $pengguna->status !== 'aktif' || !$otpValid) {
             return response()->json([
                 'message' => 'Kode OTP tidak valid atau sudah kedaluwarsa.'
-            ], 400);
+            ], 422);
         }
 
-        $pengguna->update([
-            'kata_sandi_hash' => Hash::make($request->password_baru)
-        ]);
-
-        \Illuminate\Support\Facades\Cache::forget('otp_reset_' . $pengguna->nip);
+        $pengguna->setKataSandiPengguna($request->password_baru)->save();
+        $pengguna->tokens()->delete();
 
         return response()->json([
-            'message' => 'Password berhasil di-reset! Silakan login dengan password baru Anda.'
+            'message' => 'Kata sandi berhasil dibuat. Silakan masuk dengan kata sandi baru Anda.'
         ]);
     }
 }

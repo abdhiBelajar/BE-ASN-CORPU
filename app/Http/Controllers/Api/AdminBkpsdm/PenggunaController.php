@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\AdminBkpsdm;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class PenggunaController extends Controller
 {
@@ -71,9 +72,9 @@ class PenggunaController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'nip' => 'required|string|unique:pengguna',
+            'nip' => 'required|string|unique:pengguna,nip',
             'nama_lengkap' => 'required|string',
-            'email' => 'nullable|email|unique:pengguna',
+            'email' => 'required|email:rfc|unique:pengguna,email',
             'roles' => 'nullable|array|min:1',
             'roles.*' => 'in:admin_bkpsdm,admin_komunitas,peserta',
             'peran' => 'nullable|in:admin_bkpsdm,admin_komunitas,peserta',
@@ -84,8 +85,14 @@ class PenggunaController extends Controller
         ]);
 
         return \Illuminate\Support\Facades\DB::transaction(function() use ($request) {
-            $passwordDefault = substr($request->nip, -8);
-            $rumpun = $request->rumpun_jabatan === 'Pelaksana' ? 'JP' : $request->rumpun_jabatan;
+            $simpeg = \App\Models\PegawaiSimpeg::where('nip', $request->nip)->first();
+            $namaLengkap = $request->nama_lengkap ?: ($simpeg?->nama_lengkap ?? '');
+            $jabatan = $request->jabatan ?: ($simpeg?->jabatan ?? null);
+            $rumpun = $request->rumpun_jabatan ?: ($simpeg?->rumpun_jabatan ?? 'JP');
+            if ($rumpun === 'Pelaksana') {
+                $rumpun = 'JP';
+            }
+            $unitKerja = $request->unit_kerja ?: ($simpeg?->unit_kerja ?? null);
 
             $roles = $request->roles;
             if (!$roles && $request->peran) {
@@ -97,17 +104,17 @@ class PenggunaController extends Controller
 
             $primaryRole = $roles[0] ?? 'peserta';
 
-            $pengguna = \App\Models\Pengguna::create([
+            $pengguna = new \App\Models\Pengguna([
                 'nip' => $request->nip,
-                'nama_lengkap' => $request->nama_lengkap,
+                'nama_lengkap' => $namaLengkap,
                 'email' => $request->email,
-                'kata_sandi_hash' => \Illuminate\Support\Facades\Hash::make($passwordDefault),
                 'peran' => $primaryRole,
-                'jabatan' => $request->jabatan,
+                'jabatan' => $jabatan,
                 'rumpun_jabatan' => $rumpun,
-                'unit_kerja' => $request->unit_kerja,
+                'unit_kerja' => $unitKerja,
                 'status' => 'aktif'
             ]);
+            $pengguna->acakKataSandi()->save();
 
             // Sinkronkan peran ke tabel pengguna_peran
             foreach ($roles as $role) {
@@ -130,7 +137,7 @@ class PenggunaController extends Controller
             $userData['komunitas_id'] = $request->komunitas_id;
 
             return response()->json([
-                'message' => 'Pengguna berhasil ditambahkan',
+                'message' => 'Pengguna berhasil ditambahkan. Minta pengguna memakai "Lupa Kata Sandi" untuk membuat kata sandi.',
                 'data' => $userData
             ], 201);
         });
@@ -159,6 +166,7 @@ class PenggunaController extends Controller
     public function update(Request $request, string $id)
     {
         $request->validate([
+            'email' => ['nullable', 'email:rfc', Rule::unique('pengguna', 'email')->ignore($id, 'pengguna_id')],
             'roles' => 'nullable|array|min:1',
             'roles.*' => 'in:admin_bkpsdm,admin_komunitas,peserta',
             'peran' => 'nullable|in:admin_bkpsdm,admin_komunitas,peserta',
@@ -198,9 +206,17 @@ class PenggunaController extends Controller
                     \App\Models\AdminKomunitas::where('pengguna_id', $pengguna->pengguna_id)->delete();
                 }
             }
+
+            if ($request->has('email')) {
+                $pengguna->email = $request->email;
+            }
             
             if ($request->has('status')) {
+                $statusLama = $pengguna->status;
                 $pengguna->status = $request->status;
+                if ($request->status === 'nonaktif' && $statusLama !== 'nonaktif') {
+                    $pengguna->tokens()->delete();
+                }
             }
             
             $pengguna->save();
@@ -241,6 +257,7 @@ class PenggunaController extends Controller
             }
         }
 
+        $pengguna->tokens()->delete();
         $pengguna->delete(); // Soft delete melalui SoftDeletes trait
 
         return response()->json([
@@ -251,14 +268,11 @@ class PenggunaController extends Controller
     public function resetPassword(string $id)
     {
         $pengguna = \App\Models\Pengguna::findOrFail($id);
-        $passwordDefault = substr($pengguna->nip, -8);
-        
-        $pengguna->update([
-            'kata_sandi_hash' => \Illuminate\Support\Facades\Hash::make($passwordDefault)
-        ]);
+        $pengguna->acakKataSandi()->save();
+        $pengguna->tokens()->delete();
 
         return response()->json([
-            'message' => 'Password pengguna berhasil direset ke default (8 digit NIP).'
+            'message' => 'Kata sandi lama dinonaktifkan dan semua sesi login dihapus. Pengguna harus memakai "Lupa Kata Sandi" untuk membuat kata sandi baru.'
         ]);
     }
 }

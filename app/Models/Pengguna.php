@@ -5,6 +5,9 @@ namespace App\Models;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
 
 class Pengguna extends Authenticatable
 {
@@ -17,6 +20,49 @@ class Pengguna extends Authenticatable
     const UPDATED_AT = 'diperbarui_pada';
 
     protected $guarded = [];
+
+    protected $casts = [
+        'kata_sandi_diatur_pada' => 'datetime',
+    ];
+
+    protected $appends = [
+        'sudah_aktivasi',
+    ];
+
+    public function getSudahAktivasiAttribute(): bool
+    {
+        return !is_null($this->kata_sandi_diatur_pada);
+    }
+
+    /** Set sandi acak yang tidak diketahui siapa pun + tandai belum aktivasi. Belum di-save. */
+    public function acakKataSandi(): static
+    {
+        $this->kata_sandi_hash = Hash::make(Str::random(48));
+        $this->kata_sandi_diatur_pada = null;
+        return $this;
+    }
+
+    /** Sandi buatan pengguna sendiri (dipanggil setelah OTP valid). Belum di-save. */
+    public function setKataSandiPengguna(string $plain): static
+    {
+        $this->kata_sandi_hash = Hash::make($plain);
+        $this->kata_sandi_diatur_pada = now();
+        return $this;
+    }
+
+    /** Aturan kata sandi baru: satu-satunya tempat kebijakan didefinisikan. */
+    public static function aturanKataSandi(?string $nip = null): array
+    {
+        return [
+            'required', 'string', 'confirmed',
+            Password::min(10)->letters()->mixedCase()->numbers(),
+            function ($attr, $value, $fail) use ($nip) {
+                if ($nip && (str_contains($value, $nip) || str_contains($value, substr($nip, -8)))) {
+                    $fail('Kata sandi tidak boleh mengandung NIP Anda.');
+                }
+            },
+        ];
+    }
 
     protected $hidden = [
         'kata_sandi_hash',

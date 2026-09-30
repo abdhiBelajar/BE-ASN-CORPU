@@ -86,14 +86,23 @@ class PegawaiSimpegSeeder extends Seeder
                 $rumpun = 'JP';
             }
 
+            // Kolom email opsional
+            $emailRaw = strtolower(trim((string) ($data['EMAIL'] ?? '')));
+            $emailValid = filter_var($emailRaw, FILTER_VALIDATE_EMAIL) ? $emailRaw : null;
+
+            $pegawaiData = [
+                'nama_lengkap' => $nama,
+                'jabatan' => $jabatan ?: null,
+                'rumpun_jabatan' => $rumpun,
+                'unit_kerja' => $unitKerja ?: null,
+            ];
+            if ($emailValid) {
+                $pegawaiData['email'] = $emailValid;
+            }
+
             $pegawai = PegawaiSimpeg::updateOrCreate(
                 ['nip' => $nip],
-                [
-                    'nama_lengkap' => $nama,
-                    'jabatan' => $jabatan ?: null,
-                    'rumpun_jabatan' => $rumpun,
-                    'unit_kerja' => $unitKerja ?: null,
-                ]
+                $pegawaiData
             );
 
             if ($pegawai->wasRecentlyCreated) {
@@ -106,5 +115,10 @@ class PegawaiSimpegSeeder extends Seeder
         fclose($handle);
 
         $this->command->info("Selesai! {$inserted} pegawai baru ditambahkan, {$updated} pegawai diperbarui ke tabel pegawai_simpegs.");
+
+        // Provisioning ke akun pengguna
+        $this->command->info("Melakukan sinkronisasi akun pengguna...");
+        $stats = app(\App\Services\PenggunaProvisioningService::class)->provisionSemua();
+        $this->command->info("Hasil sinkronisasi: {$stats['dibuat']} dibuat, {$stats['diperbarui']} diperbarui, {$stats['tanpa_email']} tanpa email.");
     }
 }
