@@ -11,6 +11,7 @@ use App\Services\OtpService;
 use App\Services\PenggunaProvisioningService;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\OtpMail;
+use App\Mail\ForgotPasswordOtpMail;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -143,7 +144,7 @@ class AuthLoginTest extends TestCase
             'email' => 'valid@bulelengkab.go.id',
         ]);
         $resp3->assertStatus(200)->assertJson(['message' => $expectedMsg]);
-        Mail::assertSent(OtpMail::class);
+        Mail::assertQueued(ForgotPasswordOtpMail::class);
     }
 
     /**

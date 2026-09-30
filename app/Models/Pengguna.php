@@ -117,4 +117,9 @@ class Pengguna extends Authenticatable
         }
         return !empty($roles) ? array_values(array_unique($roles)) : ['peserta'];
     }
+
+    public function verifications()
+    {
+        return $this->hasMany(\App\Models\Verification::class, 'user_id', 'pengguna_id');
+    }
 }
