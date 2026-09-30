@@ -37,6 +37,9 @@ class AuthController extends Controller
         $request->validate([
             'nip' => 'required|string',
             'password' => 'required|string',
+            'recaptcha_token' => app()->environment('testing') ? 'nullable' : ['required', new \App\Rules\Recaptcha()],
+        ], [
+            'recaptcha_token.required' => 'Silakan centang verifikasi "Saya bukan robot" terlebih dahulu.',
         ]);
 
         $identifier = trim($request->nip);
@@ -327,6 +330,9 @@ class AuthController extends Controller
         $request->validate([
             'email' => 'required|email',
             'nip'   => 'nullable|string',
+            'recaptcha_token' => app()->environment('testing') ? 'nullable' : ['required', new \App\Rules\Recaptcha()],
+        ], [
+            'recaptcha_token.required' => 'Silakan centang verifikasi "Saya bukan robot" sebelum meminta kode OTP.',
         ]);
 
         $pesan = 'Jika NIP dan email sesuai dengan data kami, kode OTP telah dikirim ke email tersebut.';
