@@ -12,13 +12,12 @@ class PembelajaranController extends Controller
         $user = $request->user();
         
         // Dapatkan semua ID komunitas di mana user adalah admin
-        $komunitasIds = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                            ->pluck('komunitas_id');
+        $komunitasIds = $user->komunitasKelolaIds();
                             
         $pembelajaran = \App\Models\Pembelajaran::whereIn('komunitas_id', $komunitasIds)
                             ->with(['komunitas', 'pembelajaranJp', 'modul.materi', 'validasi', 'kategoriKursus'])
                             ->get()
-                            ->map(function ($c) {
+                            ->map(function ($c) use ($user) {
                                 $totalModul = $c->modul ? $c->modul->count() : 0;
                                 $calculatedJp = $c->pembelajaranJp && $c->pembelajaranJp->isNotEmpty()
                                     ? ($c->pembelajaranJp->first()->jp_final ?? $c->pembelajaranJp->first()->jp_dihitung_sistem)
@@ -34,6 +33,7 @@ class PembelajaranController extends Controller
                                 $c->peserta_count = $totalPeserta;
                                 $c->total_peserta = $totalPeserta;
                                 $c->avg_progres = $avgProg;
+                                $c->dapat_dikelola = $user->bisaMengelolaPembelajaran($c);
                                 return $c;
                             });
                             
@@ -46,8 +46,14 @@ class PembelajaranController extends Controller
     public function myKomunitas(Request $request)
     {
         $user = $request->user();
-        $komunitasIds = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)->pluck('komunitas_id');
-        $komunitas = \App\Models\Komunitas::whereIn('komunitas_id', $komunitasIds)->get();
+        $komunitas = \App\Models\Komunitas::whereIn('komunitas_id', $user->komunitasKelolaIds())
+            ->get()
+            ->sortBy(fn ($k) => $k->isUmum() ? 1 : 0)
+            ->values()
+            ->map(function ($k) {
+                $k->is_umum = $k->isUmum();
+                return $k;
+            });
             
         return response()->json([
             'message' => 'Komunitas berhasil diambil',
@@ -77,11 +83,7 @@ class PembelajaranController extends Controller
         $user = $request->user();
 
         // Verifikasi bahwa user adalah admin dari komunitas ini
-        $isAdmin = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                        ->where('komunitas_id', $request->komunitas_id)
-                        ->exists();
-
-        if (!$isAdmin) {
+        if (!$user->bisaMengelolaKomunitas($request->komunitas_id)) {
             return response()->json([
                 'message' => 'Anda bukan admin untuk komunitas ini.'
             ], 403);
@@ -135,12 +137,8 @@ class PembelajaranController extends Controller
         $user = $request->user();
         $pembelajaran = \App\Models\Pembelajaran::with(['komunitas', 'pembelajaranJp', 'validasi.pemvalidasi', 'modul.materi', 'kategoriKursus'])->findOrFail($id);
 
-        // Verifikasi bahwa user adalah admin dari komunitas ini
-        $isAdmin = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                        ->where('komunitas_id', $pembelajaran->komunitas_id)
-                        ->exists();
-
-        if (!$isAdmin) {
+        // Verifikasi bahwa user dapat melihat pembelajaran di komunitas ini
+        if (!$user->bisaMengelolaKomunitas($pembelajaran->komunitas_id)) {
             return response()->json(['message' => 'Akses ditolak.'], 403);
         }
 
@@ -148,6 +146,7 @@ class PembelajaranController extends Controller
             ? ($pembelajaran->pembelajaranJp->first()->jp_final ?? $pembelajaran->pembelajaranJp->first()->jp_dihitung_sistem)
             : round($pembelajaran->modul ? $pembelajaran->modul->sum('jp_modul') : 0, 1);
         $pembelajaran->jpl = $calculatedJp > 0 ? $calculatedJp : 2;
+        $pembelajaran->dapat_dikelola = $user->bisaMengelolaPembelajaran($pembelajaran);
 
         return response()->json([
             'message' => 'Detail pembelajaran berhasil diambil',
@@ -160,11 +159,7 @@ class PembelajaranController extends Controller
         $user = $request->user();
         $pembelajaran = \App\Models\Pembelajaran::findOrFail($id);
 
-        $isAdmin = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                        ->where('komunitas_id', $pembelajaran->komunitas_id)
-                        ->exists();
-
-        if (!$isAdmin) {
+        if (!$user->bisaMengelolaPembelajaran($pembelajaran)) {
             return response()->json(['message' => 'Akses ditolak.'], 403);
         }
 
@@ -246,11 +241,7 @@ class PembelajaranController extends Controller
         $user = $request->user();
         $pembelajaran = \App\Models\Pembelajaran::findOrFail($id);
 
-        $isAdmin = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                        ->where('komunitas_id', $pembelajaran->komunitas_id)
-                        ->exists();
-
-        if (!$isAdmin) {
+        if (!$user->bisaMengelolaPembelajaran($pembelajaran)) {
             return response()->json(['message' => 'Akses ditolak.'], 403);
         }
 
@@ -289,11 +280,7 @@ class PembelajaranController extends Controller
         $user = $request->user();
         $pembelajaran = \App\Models\Pembelajaran::findOrFail($id);
 
-        $isAdmin = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                        ->where('komunitas_id', $pembelajaran->komunitas_id)
-                        ->exists();
-
-        if (!$isAdmin) {
+        if (!$user->bisaMengelolaPembelajaran($pembelajaran)) {
             return response()->json(['message' => 'Akses ditolak.'], 403);
         }
 
@@ -314,11 +301,7 @@ class PembelajaranController extends Controller
         $user = $request->user();
         $pembelajaran = \App\Models\Pembelajaran::findOrFail($id);
 
-        $isAdmin = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                        ->where('komunitas_id', $pembelajaran->komunitas_id)
-                        ->exists();
-
-        if (!$isAdmin) {
+        if (!$user->bisaMengelolaPembelajaran($pembelajaran)) {
             return response()->json(['message' => 'Akses ditolak.'], 403);
         }
 
@@ -426,11 +409,7 @@ class PembelajaranController extends Controller
         $user = $request->user();
         $pembelajaran = \App\Models\Pembelajaran::findOrFail($id);
 
-        $isAdmin = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                        ->where('komunitas_id', $pembelajaran->komunitas_id)
-                        ->exists();
-
-        if (!$isAdmin) {
+        if (!$user->bisaMengelolaKomunitas($pembelajaran->komunitas_id)) {
             return response()->json(['message' => 'Akses ditolak.'], 403);
         }
 

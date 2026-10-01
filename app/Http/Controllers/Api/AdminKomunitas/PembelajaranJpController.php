@@ -11,9 +11,7 @@ class PembelajaranJpController extends Controller
         $pembelajaran = \App\Models\Pembelajaran::find($pembelajaran_id);
         if (!$pembelajaran) return false;
 
-        return \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                    ->where('komunitas_id', $pembelajaran->komunitas_id)
-                    ->exists();
+        return $user->bisaMengelolaPembelajaran($pembelajaran);
     }
 
     public function store(Request $request, $pembelajaran_id)

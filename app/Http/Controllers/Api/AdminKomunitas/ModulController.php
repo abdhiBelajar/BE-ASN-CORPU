@@ -7,18 +7,18 @@ use Illuminate\Http\Request;
 
 class ModulController extends Controller
 {
-    private function isPembelajaranAdmin($user, $pembelajaran_id) {
+    private function isPembelajaranAdmin($user, $pembelajaran_id, bool $forWrite = true) {
         $pembelajaran = \App\Models\Pembelajaran::find($pembelajaran_id);
         if (!$pembelajaran) return false;
 
-        return \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                    ->where('komunitas_id', $pembelajaran->komunitas_id)
-                    ->exists();
+        return $forWrite
+            ? $user->bisaMengelolaPembelajaran($pembelajaran)
+            : $user->bisaMengelolaKomunitas($pembelajaran->komunitas_id);
     }
 
     public function index(Request $request, $pembelajaran_id)
     {
-        if (!$this->isPembelajaranAdmin($request->user(), $pembelajaran_id)) {
+        if (!$this->isPembelajaranAdmin($request->user(), $pembelajaran_id, false)) {
             return response()->json(['message' => 'Akses ditolak.'], 403);
         }
 

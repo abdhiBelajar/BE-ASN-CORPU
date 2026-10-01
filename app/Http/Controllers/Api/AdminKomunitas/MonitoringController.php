@@ -11,9 +11,7 @@ class MonitoringController extends Controller
         $pembelajaran = \App\Models\Pembelajaran::find($pembelajaran_id);
         if (!$pembelajaran) return false;
 
-        return \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)
-                    ->where('komunitas_id', $pembelajaran->komunitas_id)
-                    ->exists();
+        return $user->bisaMengelolaKomunitas($pembelajaran->komunitas_id);
     }
 
     public function index(Request $request, $pembelajaran_id)
@@ -38,7 +36,7 @@ class MonitoringController extends Controller
     {
         $user = $request->user();
 
-        $komunitasIds = \App\Models\AdminKomunitas::where('pengguna_id', $user->pengguna_id)->pluck('komunitas_id');
+        $komunitasIds = $user->komunitasKelolaIds();
         $pembelajaranList = \App\Models\Pembelajaran::whereIn('komunitas_id', $komunitasIds)
             ->select('pembelajaran_id', 'judul_pembelajaran', 'kategori', 'status')
             ->get();

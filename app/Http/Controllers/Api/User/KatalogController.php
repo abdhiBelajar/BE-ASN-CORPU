@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\User;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Models\Komunitas;
 use App\Models\Pembelajaran;
 use App\Models\PendaftaranPembelajaran;
 
@@ -17,7 +18,17 @@ class KatalogController extends Controller
         $joinedKomunitas = $user->komunitas()
             ->select('komunitas.komunitas_id', 'komunitas.nama_komunitas', 'komunitas.rumpun_jabatan')
             ->get();
-        $joinedKomunitasIds = $joinedKomunitas->pluck('komunitas_id')->toArray();
+
+        // Tambahkan Komunitas Umum jika aktif
+        $komunitasUmum = Komunitas::query()->umum()->where('status', 'aktif')
+            ->select('komunitas.komunitas_id', 'komunitas.nama_komunitas', 'komunitas.rumpun_jabatan')
+            ->first();
+
+        if ($komunitasUmum && !$joinedKomunitas->contains('komunitas_id', $komunitasUmum->komunitas_id)) {
+            $joinedKomunitas->push($komunitasUmum);
+        }
+
+        $joinedKomunitasIds = $joinedKomunitas->pluck('komunitas_id')->map(fn ($v) => (int) $v)->toArray();
 
         // Jika user belum bergabung ke komunitas mana pun, katalog tidak menampilkan pembelajaran
         if (empty($joinedKomunitasIds)) {
@@ -143,20 +154,25 @@ class KatalogController extends Controller
             ], 400);
         }
 
-        // Validasi: Peserta HARUS sudah bergabung ke komunitas penyelenggara
-        $isMember = $user->komunitas()->where('komunitas_pengguna.komunitas_id', $pembelajaran->komunitas_id)->exists();
-        if (!$isMember) {
-            $namaKomunitas = $pembelajaran->komunitas->nama_komunitas ?? 'komunitas terkait';
-            return response()->json([
-                'message' => 'Anda harus bergabung dengan "' . $namaKomunitas . '" terlebih dahulu sebelum dapat mendaftar pelatihan ini.'
-            ], 403);
-        }
+        $komunitas = $pembelajaran->komunitas;
+        $isUmum = $komunitas && $komunitas->isUmum();
 
-        // Validasi batas rumpun jabatan (PRD PST-2, Bab 5)
-        if (!empty($user->rumpun_jabatan) && $pembelajaran->komunitas && $pembelajaran->komunitas->rumpun_jabatan !== $user->rumpun_jabatan) {
-            return response()->json([
-                'message' => 'Anda tidak memiliki akses untuk mendaftar pembelajaran di luar rumpun jabatan Anda (' . $user->rumpun_jabatan . ').'
-            ], 403);
+        // Validasi: Peserta HARUS sudah bergabung ke komunitas penyelenggara (kecuali Komunitas Umum)
+        if (!$isUmum) {
+            $isMember = $user->komunitas()->where('komunitas_pengguna.komunitas_id', $pembelajaran->komunitas_id)->exists();
+            if (!$isMember) {
+                $namaKomunitas = $komunitas->nama_komunitas ?? 'komunitas terkait';
+                return response()->json([
+                    'message' => 'Anda harus bergabung dengan "' . $namaKomunitas . '" terlebih dahulu sebelum dapat mendaftar pelatihan ini.'
+                ], 403);
+            }
+
+            // Validasi batas rumpun jabatan (PRD PST-2, Bab 5)
+            if (!empty($user->rumpun_jabatan) && $komunitas && $komunitas->rumpun_jabatan !== $user->rumpun_jabatan) {
+                return response()->json([
+                    'message' => 'Anda tidak memiliki akses untuk mendaftar pembelajaran di luar rumpun jabatan Anda (' . $user->rumpun_jabatan . ').'
+                ], 403);
+            }
         }
 
         $exists = PendaftaranPembelajaran::where('pengguna_id', $user->pengguna_id)

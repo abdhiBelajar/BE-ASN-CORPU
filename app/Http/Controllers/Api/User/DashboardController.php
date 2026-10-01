@@ -157,7 +157,7 @@ class DashboardController extends Controller
         }
 
         // Rekomendasi (Kursus yang dipublikasikan dari komunitas yang diikuti dan belum diikuti)
-        $joinedKomunitasIds = $user->komunitas()->pluck('komunitas.komunitas_id')->toArray();
+        $joinedKomunitasIds = $user->komunitasAksesIds();
         $enrolledIds = $pendaftaran->pluck('pembelajaran_id');
         $rekomendasi = [];
 
@@ -168,7 +168,10 @@ class DashboardController extends Controller
 
             if (!empty($user->rumpun_jabatan)) {
                 $rekomendasiQuery->whereHas('komunitas', function($q) use ($user) {
-                    $q->where('rumpun_jabatan', $user->rumpun_jabatan);
+                    $q->where(function ($sub) use ($user) {
+                        $sub->where('rumpun_jabatan', $user->rumpun_jabatan)
+                            ->orWhere('rumpun_jabatan', \App\Models\Komunitas::RUMPUN_UMUM);
+                    });
                 });
             }
 

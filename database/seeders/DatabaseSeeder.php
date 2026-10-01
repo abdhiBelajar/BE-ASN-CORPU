@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
         // agar AdminKomunitasSeeder bisa mengambil data admin_bkpsdm yang sudah ada
         $this->call([
             AdminBkpsdmSeeder::class,
+            KomunitasUmumSeeder::class,
             AdminKomunitasSeeder::class,
             PegawaiSimpegSeeder::class,
         ]);

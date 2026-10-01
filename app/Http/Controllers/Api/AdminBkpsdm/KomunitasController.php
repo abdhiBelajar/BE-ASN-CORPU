@@ -60,7 +60,7 @@ class KomunitasController extends Controller
         $request->validate([
             'nama_komunitas' => 'required|string|max:255|unique:komunitas',
             'deskripsi' => 'nullable|string',
-            'rumpun_jabatan' => 'required|in:JPT,JA,JF,JP,Pelaksana',
+            'rumpun_jabatan' => 'required|in:JPT,JA,JF,JP,Pelaksana,UMUM',
             'thumbnail' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
         ], [
             'thumbnail.max' => 'Ukuran thumbnail tidak boleh lebih dari 2MB.',
@@ -111,7 +111,7 @@ class KomunitasController extends Controller
         $request->validate([
             'nama_komunitas' => 'nullable|string|max:255|unique:komunitas,nama_komunitas,' . $id . ',komunitas_id',
             'deskripsi' => 'nullable|string',
-            'rumpun_jabatan' => 'nullable|in:JPT,JA,JF,JP,Pelaksana',
+            'rumpun_jabatan' => 'nullable|in:JPT,JA,JF,JP,Pelaksana,UMUM',
             'status' => 'nullable|in:aktif,nonaktif',
             'thumbnail' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
         ], [
@@ -125,6 +125,19 @@ class KomunitasController extends Controller
 
         if (isset($data['rumpun_jabatan']) && $data['rumpun_jabatan'] === 'Pelaksana') {
             $data['rumpun_jabatan'] = 'JP';
+        }
+
+        if ($komunitas->nama_komunitas === 'Komunitas Umum') {
+            if (isset($data['rumpun_jabatan']) && $data['rumpun_jabatan'] !== 'UMUM') {
+                return response()->json([
+                    'message' => 'Rumpun jabatan Komunitas Umum utama tidak dapat diubah.'
+                ], 422);
+            }
+            if (isset($data['status']) && $data['status'] === 'nonaktif') {
+                return response()->json([
+                    'message' => 'Komunitas Umum utama tidak dapat dinonaktifkan.'
+                ], 422);
+            }
         }
 
         if ($request->hasFile('thumbnail')) {
@@ -149,6 +162,12 @@ class KomunitasController extends Controller
     {
         $komunitas = \App\Models\Komunitas::findOrFail($id);
         
+        if ($komunitas->nama_komunitas === 'Komunitas Umum') {
+            return response()->json([
+                'message' => 'Komunitas Umum utama tidak dapat dihapus.'
+            ], 422);
+        }
+
         if ($komunitas->thumbnail && \Illuminate\Support\Facades\Storage::disk('public')->exists($komunitas->thumbnail)) {
             \Illuminate\Support\Facades\Storage::disk('public')->delete($komunitas->thumbnail);
         }

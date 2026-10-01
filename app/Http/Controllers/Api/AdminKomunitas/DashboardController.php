@@ -16,7 +16,7 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        $komunitasIds = AdminKomunitas::where('pengguna_id', $user->pengguna_id)->pluck('komunitas_id');
+        $komunitasIds = $user->komunitasKelolaIds();
         $pembelajaranList = Pembelajaran::whereIn('komunitas_id', $komunitasIds)->get();
         $pembelajaranIds = $pembelajaranList->pluck('pembelajaran_id');
 

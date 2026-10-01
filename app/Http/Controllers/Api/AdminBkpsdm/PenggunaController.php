@@ -84,6 +84,12 @@ class PenggunaController extends Controller
             'komunitas_id' => 'nullable|exists:komunitas,komunitas_id'
         ]);
 
+        if ($request->komunitas_id && (int) $request->komunitas_id === \App\Models\Komunitas::umumId()) {
+            return response()->json([
+                'message' => 'Admin Komunitas otomatis dapat mengelola Komunitas Umum; pilih komunitas rumpun.'
+            ], 422);
+        }
+
         return \Illuminate\Support\Facades\DB::transaction(function() use ($request) {
             $simpeg = \App\Models\PegawaiSimpeg::where('nip', $request->nip)->first();
             $namaLengkap = $request->nama_lengkap ?: ($simpeg?->nama_lengkap ?? '');
@@ -173,6 +179,12 @@ class PenggunaController extends Controller
             'status' => 'nullable|in:aktif,nonaktif',
             'komunitas_id' => 'nullable|exists:komunitas,komunitas_id'
         ]);
+
+        if ($request->has('komunitas_id') && $request->komunitas_id && (int) $request->komunitas_id === \App\Models\Komunitas::umumId()) {
+            return response()->json([
+                'message' => 'Admin Komunitas otomatis dapat mengelola Komunitas Umum; pilih komunitas rumpun.'
+            ], 422);
+        }
 
         $pengguna = \App\Models\Pengguna::findOrFail($id);
         

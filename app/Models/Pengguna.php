@@ -122,4 +122,67 @@ class Pengguna extends Authenticatable
     {
         return $this->hasMany(\App\Models\Verification::class, 'user_id', 'pengguna_id');
     }
+
+    /** Apakah pengguna ini punya peran admin_komunitas (pada tabel pivot ATAU kolom lama). */
+    public function adalahAdminKomunitas(): bool
+    {
+        return in_array('admin_komunitas', $this->roles_list, true);
+    }
+
+    /**
+     * ID semua komunitas yang boleh DIKELOLA admin ini.
+     * = komunitas pada tabel admin_komunitas + Komunitas Umum (jika punya peran admin_komunitas).
+     */
+    public function komunitasKelolaIds(): array
+    {
+        $ids = \App\Models\AdminKomunitas::where('pengguna_id', $this->pengguna_id)
+            ->pluck('komunitas_id')->map(fn ($v) => (int) $v)->all();
+
+        if ($this->adalahAdminKomunitas()) {
+            $umumIds = \App\Models\Komunitas::query()->umum()->pluck('komunitas_id')->map(fn ($v) => (int) $v)->all();
+            $ids = array_merge($ids, $umumIds);
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /** Boleh mengelola komunitas ini? */
+    public function bisaMengelolaKomunitas(int|string $komunitasId): bool
+    {
+        return in_array((int) $komunitasId, $this->komunitasKelolaIds(), true);
+    }
+
+    /**
+     * Boleh mengelola pembelajaran ini?
+     * Semua jenis jabatan admin komunitas bisa mengelola dan membuat modul kursus di komunitas umum.
+     * Bila config('komunitas.umum_hanya_pembuat') = true, dibatasi hanya perancang kursus.
+     */
+    public function bisaMengelolaPembelajaran(\App\Models\Pembelajaran $pembelajaran): bool
+    {
+        if (!$this->bisaMengelolaKomunitas($pembelajaran->komunitas_id)) {
+            return false;
+        }
+
+        $komunitas = $pembelajaran->komunitas ?? \App\Models\Komunitas::find($pembelajaran->komunitas_id);
+
+        if ($komunitas && $komunitas->isUmum() && config('komunitas.umum_hanya_pembuat', false)) {
+            return (int) $pembelajaran->dirancang_oleh_pengguna_id === (int) $this->pengguna_id;
+        }
+
+        return true;
+    }
+
+    /**
+     * ID komunitas yang boleh DIAKSES peserta (katalog, enroll):
+     * komunitas yang di-join (rumpun sama) + Komunitas Umum (selalu, jika aktif).
+     */
+    public function komunitasAksesIds(): array
+    {
+        $ids = $this->komunitas()->pluck('komunitas.komunitas_id')->map(fn ($v) => (int) $v)->all();
+
+        $umumIds = \App\Models\Komunitas::query()->umum()->where('status', 'aktif')->pluck('komunitas_id')->map(fn ($v) => (int) $v)->all();
+        $ids = array_merge($ids, $umumIds);
+
+        return array_values(array_unique($ids));
+    }
 }

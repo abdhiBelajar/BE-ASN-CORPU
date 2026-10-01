@@ -10,11 +10,44 @@ class Komunitas extends Model
     use SoftDeletes;
     protected $table = 'komunitas';
     protected $primaryKey = 'komunitas_id';
-    
     const CREATED_AT = 'dibuat_pada';
     const UPDATED_AT = 'diperbarui_pada';
-    
+
     protected $guarded = [];
+
+    public const RUMPUN_UMUM = 'UMUM';
+
+    public static ?int $umumIdCache = null;
+
+    public function isUmum(): bool
+    {
+        return $this->rumpun_jabatan === self::RUMPUN_UMUM;
+    }
+
+    public function scopeUmum($query)
+    {
+        return $query->where('rumpun_jabatan', self::RUMPUN_UMUM);
+    }
+
+    public static function resetUmumIdCache(): void
+    {
+        static::$umumIdCache = null;
+    }
+
+    /** ID Komunitas Umum (di-cache per request; null jika belum di-seed). */
+    public static function umumId(): ?int
+    {
+        if (app()->environment('testing')) {
+            $val = static::query()->umum()->value('komunitas_id');
+            return $val ? (int) $val : null;
+        }
+
+        if (static::$umumIdCache === null) {
+            $cache = static::query()->umum()->value('komunitas_id');
+            static::$umumIdCache = $cache ? (int) $cache : 0;
+        }
+        return static::$umumIdCache > 0 ? static::$umumIdCache : null;
+    }
 
     protected $appends = ['thumbnail_url'];
 
