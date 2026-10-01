@@ -86,9 +86,10 @@ class MateriController extends Controller
 
         $request->validate([
             'judul_materi' => 'required|string|max:255',
-            'tipe_materi' => 'required|in:pdf,video_embed,h5p',
+            'tipe_materi' => 'required|in:pdf,video_embed,h5p,scorm',
             'tautan_atau_berkas_embed' => 'required_if:tipe_materi,video_embed,h5p|nullable|string|max:1000',
             'file_pdf' => 'required_if:tipe_materi,pdf|nullable|file|mimes:pdf|max:10240',
+            'file_scorm' => 'nullable|file|mimes:zip|max:102400',
             'durasi_menit' => 'nullable|integer|min:1',
             'apakah_wajib' => 'nullable',
             'urutan' => [
@@ -104,6 +105,23 @@ class MateriController extends Controller
             }
             $path = $request->file('file_pdf')->store('materi_pdf', 'public');
             $url = '/storage/' . $path;
+        } elseif ($request->tipe_materi === 'scorm') {
+            if ($request->hasFile('file_scorm')) {
+                try {
+                    $scormResult = (new \App\Services\ScormService())->extractAndGetEntryUrl($request->file('file_scorm'));
+                    $url = $scormResult['url'];
+                } catch (\Throwable $e) {
+                    return response()->json(['message' => 'Gagal memproses paket SCORM: ' . $e->getMessage()], 422);
+                }
+            } elseif ($request->filled('tautan_atau_berkas_embed')) {
+                $raw = trim($request->tautan_atau_berkas_embed ?: '');
+                if (preg_match('/<iframe\b[^>]*\bsrc=["\']([^"\']+)["\']/i', $raw, $matches)) {
+                    $raw = $matches[1];
+                }
+                $url = $raw;
+            } else {
+                return response()->json(['message' => 'Silakan unggah berkas ZIP paket SCORM atau masukkan tautan eksternal SCORM.'], 422);
+            }
         } else {
             $raw = trim($request->tautan_atau_berkas_embed ?: '');
             // Jika user memasukkan iframe tag lengkap, ekstrak URL src-nya
@@ -176,7 +194,7 @@ class MateriController extends Controller
 
         $request->validate([
             'judul_materi' => 'sometimes|string|max:255',
-            'tipe_materi' => 'sometimes|in:pdf,video_embed,h5p',
+            'tipe_materi' => 'sometimes|in:pdf,video_embed,h5p,scorm',
             'durasi_menit' => 'sometimes|integer|min:1',
             'apakah_wajib' => 'nullable|in:0,1,true,false',
             'urutan' => [
@@ -185,6 +203,7 @@ class MateriController extends Controller
             ],
             'tautan_atau_berkas_embed' => 'nullable|string|max:1000',
             'file_pdf' => 'nullable|file|mimes:pdf|max:10240',
+            'file_scorm' => 'nullable|file|mimes:zip|max:102400',
         ]);
 
         $newTipe = $request->input('tipe_materi', $materi->tipe_materi);
@@ -193,18 +212,41 @@ class MateriController extends Controller
             $updateData['apakah_wajib'] = filter_var($request->apakah_wajib, FILTER_VALIDATE_BOOLEAN);
         }
 
+        $scormService = new \App\Services\ScormService();
+
         if ($request->hasFile('file_pdf')) {
             if ($materi->tipe_materi === 'pdf' && $materi->tautan_atau_berkas) {
                 $oldPath = str_replace('/storage/', '', $materi->tautan_atau_berkas);
                 \Illuminate\Support\Facades\Storage::disk('public')->delete($oldPath);
             }
+            if ($materi->tipe_materi === 'scorm') {
+                $scormService->deleteScormByUrl($materi->tautan_atau_berkas);
+            }
             $path = $request->file('file_pdf')->store('materi_pdf', 'public');
             $updateData['tautan_atau_berkas'] = '/storage/' . $path;
             $updateData['tipe_materi'] = 'pdf';
-        } elseif ($request->has('tautan_atau_berkas_embed') && in_array($newTipe, ['video_embed', 'h5p'])) {
+        } elseif ($request->hasFile('file_scorm')) {
+            if ($materi->tipe_materi === 'pdf' && $materi->tautan_atau_berkas) {
+                $oldPath = str_replace('/storage/', '', $materi->tautan_atau_berkas);
+                \Illuminate\Support\Facades\Storage::disk('public')->delete($oldPath);
+            }
+            if ($materi->tipe_materi === 'scorm') {
+                $scormService->deleteScormByUrl($materi->tautan_atau_berkas);
+            }
+            try {
+                $scormResult = $scormService->extractAndGetEntryUrl($request->file('file_scorm'));
+                $updateData['tautan_atau_berkas'] = $scormResult['url'];
+                $updateData['tipe_materi'] = 'scorm';
+            } catch (\Throwable $e) {
+                return response()->json(['message' => 'Gagal memproses paket SCORM: ' . $e->getMessage()], 422);
+            }
+        } elseif ($request->has('tautan_atau_berkas_embed') && in_array($newTipe, ['video_embed', 'h5p', 'scorm'])) {
             $raw = trim($request->tautan_atau_berkas_embed ?: '');
             if (preg_match('/<iframe\b[^>]*\bsrc=["\']([^"\']+)["\']/i', $raw, $matches)) {
                 $raw = $matches[1];
+            }
+            if ($materi->tipe_materi === 'scorm' && $materi->tautan_atau_berkas !== $raw) {
+                $scormService->deleteScormByUrl($materi->tautan_atau_berkas);
             }
             $updateData['tautan_atau_berkas'] = $raw;
         }
@@ -247,6 +289,11 @@ class MateriController extends Controller
         if ($materi->tipe_materi === 'pdf' && $materi->tautan_atau_berkas) {
             $filePath = str_replace('/storage/', '', $materi->tautan_atau_berkas);
             \Illuminate\Support\Facades\Storage::disk('public')->delete($filePath);
+        }
+
+        // Hapus folder SCORM jika bertipe SCORM lokal
+        if ($materi->tipe_materi === 'scorm' && $materi->tautan_atau_berkas) {
+            (new \App\Services\ScormService())->deleteScormByUrl($materi->tautan_atau_berkas);
         }
 
         $pembelajaranId = $modul->pembelajaran_id;
