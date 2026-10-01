@@ -90,26 +90,23 @@ class SertifikatController extends Controller
         return $this->generatePdfResponse($sertifikat);
     }
 
+    public function downloadAdmin(Request $request, $id)
+    {
+        $sertifikat = Sertifikat::with(['pendaftaran.pembelajaran' => function($q) {
+            $q->with('pembelajaranJp');
+        }])->find($id);
+
+        if (!$sertifikat) {
+            return response()->json(['message' => 'Sertifikat tidak ditemukan'], 404);
+        }
+
+        return $this->generatePdfResponse($sertifikat);
+    }
+
     private function generatePdfResponse($sertifikat)
     {
-        $pembelajaran = $sertifikat->pendaftaran ? $sertifikat->pendaftaran->pembelajaran : null;
-        $pengguna = $sertifikat->pendaftaran ? $sertifikat->pendaftaran->pengguna : null;
-        $jpDet = $pembelajaran ? $pembelajaran->pembelajaranJp->first() : null;
-        
-        $data = [
-            'sertifikat' => [
-                'nomor_sertifikat' => $sertifikat->nomor_sertifikat,
-                'judul_pembelajaran' => $pembelajaran->judul_pembelajaran ?? '-',
-                'nama_peserta' => $sertifikat->nama_lengkap_snapshot,
-                'nip' => $sertifikat->nip_snapshot,
-                'unit_kerja' => $pengguna->unit_kerja ?? '-',
-                'jpl' => $jpDet ? $jpDet->jp_final : 0,
-                'tanggal' => Carbon::parse($sertifikat->tanggal_terbit)->translatedFormat('d F Y')
-            ]
-        ];
-
-        $pdf = Pdf::loadView('pdf.sertifikat', $data)
-                  ->setPaper('a4', 'landscape');
+        $certService = app(\App\Services\CertificateService::class);
+        $pdf = $certService->renderPdf($sertifikat);
 
         $cleanName = str_replace(' ', '_', $sertifikat->nama_lengkap_snapshot ?? 'Peserta');
         return $pdf->download('Sertifikat_' . $cleanName . '.pdf');

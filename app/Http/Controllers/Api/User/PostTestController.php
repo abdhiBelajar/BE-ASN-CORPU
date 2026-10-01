@@ -170,12 +170,15 @@ class PostTestController extends Controller
                 $lockedPendaftaran->diselesaikan_pada = now();
                 $lockedPendaftaran->save();
 
+                $certService = app(\App\Services\CertificateService::class);
                 $sertifikatModel = Sertifikat::firstOrCreate([
                     'pendaftaran_id' => $lockedPendaftaran->pendaftaran_id
                 ], [
-                    'nomor_sertifikat' => 'CERT-' . strtoupper(uniqid()),
+                    'nomor_sertifikat' => $certService->generateNomorSertifikat(now()),
+                    'verification_code' => $certService->generateVerificationCode(),
                     'nama_lengkap_snapshot' => $user->nama_lengkap,
                     'nip_snapshot' => $user->nip,
+                    'unit_kerja_snapshot' => $user->unit_kerja,
                     'tanggal_terbit' => now(),
                     'tautan_berkas' => '-'
                 ]);

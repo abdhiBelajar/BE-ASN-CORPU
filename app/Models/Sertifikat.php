@@ -18,4 +18,9 @@ class Sertifikat extends Model
     {
         return $this->belongsTo(PendaftaranPembelajaran::class, 'pendaftaran_id', 'pendaftaran_id');
     }
+
+    public function validasiSertifikats()
+    {
+        return $this->hasMany(ValidasiSertifikat::class, 'sertifikat_id', 'sertifikat_id');
+    }
 }

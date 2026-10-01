@@ -81,7 +81,7 @@ class LaporanController extends Controller
                     'nomor_sertifikat' => $p->sertifikat->nomor_sertifikat,
                     'file_sertifikat_path' => $p->sertifikat->file_sertifikat_path,
                     'diterbitkan_pada' => $p->sertifikat->diterbitkan_pada,
-                    'download_url' => url('/api/user/certificates/' . $p->sertifikat->sertifikat_id . '/download'),
+                    'download_url' => url('/api/admin-bkpsdm/sertifikat/' . $p->sertifikat->sertifikat_id . '/download'),
                 ] : null,
                 'ulasan' => $p->ulasan ? [
                     'ulasan_id' => $p->ulasan->ulasan_id,

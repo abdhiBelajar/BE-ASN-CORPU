@@ -18,6 +18,11 @@ Route::post('/forgot-password/verify', [AuthController::class, 'verifyOtp'])->mi
 Route::post('/forgot-password/resend', [AuthController::class, 'resendOtp'])->middleware('throttle:6,1');
 Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:reset-sandi');
 
+// Verifikasi Sertifikat Publik (Bisa diakses tanpa login saat QR Code discan)
+Route::get('/sertifikat/validasi/{code}', [\App\Http\Controllers\Api\CertificateVerificationController::class, 'verify'])
+    ->where('code', '.*')
+    ->middleware('throttle:60,1');
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/change-password/request-otp', [AuthController::class, 'changePasswordRequestOtp'])->middleware('throttle:6,1');
@@ -55,6 +60,10 @@ Route::middleware(['auth:sanctum', 'role:admin_bkpsdm'])->prefix('admin-bkpsdm')
     Route::get('/laporan/peserta', [LaporanController::class, 'peserta']);
     Route::get('/laporan/peserta/export', [LaporanController::class, 'exportPeserta']);
     Route::get('/laporan/ulasan', [LaporanController::class, 'ulasan']);
+
+    // Riwayat Validasi & Pemindaian Sertifikat
+    Route::get('/riwayat-validasi-sertifikat', [\App\Http\Controllers\Api\CertificateVerificationController::class, 'riwayatValidasi']);
+    Route::get('/sertifikat/{id}/download', [\App\Http\Controllers\Api\User\SertifikatController::class, 'downloadAdmin']);
 
     // Pusat Bantuan
     Route::get('/tiket', [PusatBantuanController::class, 'tiket']);
