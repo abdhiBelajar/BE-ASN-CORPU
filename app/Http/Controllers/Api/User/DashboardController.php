@@ -214,6 +214,8 @@ class DashboardController extends Controller
                     'unit_kerja' => $user->unit_kerja ?: 'Pemerintah Kabupaten Buleleng',
                     'email' => $user->email,
                     'rumpun_jabatan' => $user->rumpun_jabatan ?: 'JP',
+                    'peran' => $user->peran,
+                    'roles' => $user->roles_list,
                 ],
                 'stats' => [
                     'aktif' => $aktif,

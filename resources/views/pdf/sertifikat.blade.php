@@ -43,99 +43,97 @@
         }
         .main-text-area {
             position: absolute;
-            top: 75px;
-            left: 170px;
-            right: 170px;
+            top: 27.5mm;
+            left: 45mm;
+            width: 207mm;
             text-align: center;
         }
         .cert-title {
-            font-family: 'Times-Bold', 'Times New Roman', 'Georgia', serif;
-            font-size: 38px;
+            font-family: 'Times-Bold', 'Times New Roman', Georgia, serif;
+            font-size: 44pt;
             font-weight: bold;
-            letter-spacing: 2px;
+            letter-spacing: 2.5px;
             color: #0E2540;
             margin: 0;
             padding: 0;
             text-transform: uppercase;
+            line-height: 1;
         }
         .cert-number {
-            font-size: 13.5px;
+            font-size: 12.5pt;
             font-weight: bold;
-            letter-spacing: 1px;
-            color: #111827;
-            margin-top: 6px;
+            letter-spacing: 1.5px;
+            color: #0E2540;
+            margin-top: 3.5mm;
         }
         .cert-subtitle {
-            font-size: 15px;
-            color: #374151;
-            margin-top: 10px;
+            font-size: 13pt;
+            color: #1F2937;
+            margin-top: 3mm;
         }
         .participant-name {
-            font-size: 24px;
+            font-size: 25pt;
             font-weight: bold;
             color: #000000;
-            margin-top: 10px;
+            margin-top: 3.5mm;
             letter-spacing: 0.5px;
+            line-height: 1.2;
         }
         .participant-nip {
-            font-size: 13.5px;
+            font-size: 13pt;
             font-weight: bold;
-            color: #111827;
-            margin-top: 4px;
+            color: #000000;
+            margin-top: 1.5mm;
         }
         .participant-unit {
-            font-size: 13px;
-            color: #374151;
-            margin-top: 3px;
+            font-size: 11.5pt;
+            font-weight: bold;
+            color: #000000;
+            margin-top: 1.5mm;
+            line-height: 1.3;
         }
         .divider-line {
-            width: 500px;
-            height: 2px;
-            background-color: #111827;
-            margin: 10px auto 8px auto;
+            width: 170mm;
+            border-top: 2px solid #000000;
+            margin: 3.5mm auto 3.5mm auto;
         }
         .role-text {
-            font-size: 13.5px;
-            color: #4B5563;
+            font-size: 13pt;
+            color: #1F2937;
             margin: 0;
         }
         .course-title {
-            font-size: 17px;
+            font-size: 16pt;
             font-weight: bold;
             color: #000000;
-            margin-top: 7px;
+            margin-top: 2.5mm;
             line-height: 1.35;
-            max-width: 650px;
-            margin-left: auto;
-            margin-right: auto;
+            text-transform: uppercase;
         }
         .course-desc {
-            font-size: 13px;
+            font-size: 11.5pt;
             color: #1F2937;
-            margin-top: 7px;
+            margin-top: 2.5mm;
             line-height: 1.4;
-            max-width: 650px;
-            margin-left: auto;
-            margin-right: auto;
         }
         .issue-date {
-            font-size: 14px;
+            font-size: 14.5pt;
             font-weight: bold;
-            color: #8A151B;
-            margin-top: 12px;
+            color: #7A0C16;
+            margin-top: 4.5mm;
         }
         .qr-section {
             position: absolute;
-            bottom: 115px;
-            left: 186px;
-            width: 90px;
-            text-align: center;
+            left: 46.5mm;
+            top: 151mm;
+            width: 26mm;
+            height: 26mm;
+            z-index: 10;
         }
         .qr-image {
-            width: 90px;
-            height: 90px;
+            width: 26mm;
+            height: 26mm;
             display: block;
-            margin: 0 auto;
         }
     </style>
 </head>

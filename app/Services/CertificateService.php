@@ -84,6 +84,19 @@ class CertificateService
     }
 
     /**
+     * Ambil tanda tangan pejabat dalam format base64
+     */
+    public function getTtdBase64(): string
+    {
+        $path = public_path('ttd_pejabat.png');
+        if (file_exists($path)) {
+            return 'data:image/png;base64,' . base64_encode(file_get_contents($path));
+        }
+
+        return '';
+    }
+
+    /**
      * Render DomPDF instance untuk sertifikat
      */
     public function renderPdf(Sertifikat $sertifikat)
@@ -108,6 +121,7 @@ class CertificateService
 
         $data = [
             'backgroundImage' => $this->getBackgroundBase64(),
+            'ttdImage' => $this->getTtdBase64(),
             'qrCode' => $this->getQrCodeDataUri($sertifikat->verification_code),
             'verificationCode' => $sertifikat->verification_code,
             'nomorSertifikat' => $sertifikat->nomor_sertifikat,
