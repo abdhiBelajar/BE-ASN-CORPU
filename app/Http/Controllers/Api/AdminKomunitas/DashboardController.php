@@ -30,6 +30,7 @@ class DashboardController extends Controller
 
         // 5 Kursus terbaru dengan data pendaftar & progres riil
         $kursusTerbaru = Pembelajaran::whereIn('komunitas_id', $komunitasIds)
+            ->withCount('modul')
             ->latest('dibuat_pada')
             ->take(5)
             ->get()
@@ -38,6 +39,7 @@ class DashboardController extends Controller
                 $avgProg = PendaftaranPembelajaran::where('pembelajaran_id', $c->pembelajaran_id)->avg('persentase_progres') ?? 0;
                 $c->total_peserta = $enrolled;
                 $c->rata_rata_progres = round($avgProg, 1);
+                $c->modules_count = $c->modul_count ?? 0;
                 return $c;
             });
 
