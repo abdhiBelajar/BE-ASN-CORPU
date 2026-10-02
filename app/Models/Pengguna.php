@@ -118,10 +118,6 @@ class Pengguna extends Authenticatable
         if (empty($roles)) {
             $roles = ['peserta'];
         }
-        // Super Admin BKPSDM secara default selalu memiliki hak akses peran peserta
-        if (in_array('admin_bkpsdm', $roles, true) && !in_array('peserta', $roles, true)) {
-            $roles[] = 'peserta';
-        }
         return array_values(array_unique($roles));
     }
 
