@@ -48,7 +48,7 @@ class Modul extends Model
 
     public function materi()
     {
-        return $this->hasMany(Materi::class, 'modul_id', 'modul_id');
+        return $this->hasMany(Materi::class, 'modul_id', 'modul_id')->orderBy('urutan', 'asc');
     }
 
     public function materis() {
