@@ -79,6 +79,15 @@ class KuisController extends Controller
                 $blanksCount = isset($pilihan['blanks']) ? count($pilihan['blanks']) : 0;
                 $formatted['pilihan_jawaban'] = array_values(array_unique($options));
                 $formatted['jumlah_blank'] = $blanksCount;
+            } elseif ($s->tipe_soal === 'pilihan_berbobot') {
+                // Untuk pilihan_berbobot, kirim mapping opsi tanpa membocorkan skor bobot sebelum selesai
+                $optionsMap = [];
+                if (is_array($pilihan)) {
+                    foreach ($pilihan as $k => $v) {
+                        $optionsMap[$k] = is_array($v) ? ($v['teks'] ?? '') : (string)$v;
+                    }
+                }
+                $formatted['pilihan_jawaban'] = $optionsMap;
             }
 
             return $formatted;
@@ -91,11 +100,15 @@ class KuisController extends Controller
             }
         }
 
+        $hasOnlyWeighted = $kuis->soalKuis->count() > 0 && $kuis->soalKuis->every(fn($s) => $s->tipe_soal === 'pilihan_berbobot');
+        $effectiveTipeKuis = ($kuis->tipe_kuis === 'kuis_berbobot' || $hasOnlyWeighted) ? 'kuis_berbobot' : $kuis->tipe_kuis;
+
         return response()->json([
             'message' => 'Soal Kuis berhasil diambil',
             'data' => [
                 'kuis_id' => $kuis->kuis_id,
-                'tipe_kuis' => $kuis->tipe_kuis,
+                'tipe_kuis' => $effectiveTipeKuis,
+                'is_kuis_berbobot' => ($effectiveTipeKuis === 'kuis_berbobot'),
                 'materi_id' => $kuis->materi_id,
                 'judul_kuis' => $kuis->judul_kuis,
                 'judul_modul' => $kuis->modul->judul_modul,
@@ -202,6 +215,30 @@ class KuisController extends Controller
                             // Proporsional sesuai jumlah titik kosong yang dijawab benar
                             $skorDidapat += ($correctCount / $totalBlanks) * $s->bobot_nilai;
                         }
+                    } elseif ($s->tipe_soal === 'pilihan_berbobot') {
+                        // Penilaian berbobot (tidak ada salah dan benar biner, nilai sesuai bobot opsi yang dipilih)
+                        $pilihan = is_string($s->pilihan_jawaban_json) ? json_decode($s->pilihan_jawaban_json, true) : $s->pilihan_jawaban_json;
+                        $userChoice = strtoupper(trim((string) $jawaban));
+                        
+                        $selectedBobot = 0;
+                        if (is_array($pilihan) && isset($pilihan[$userChoice])) {
+                            $opt = $pilihan[$userChoice];
+                            $selectedBobot = is_array($opt) ? (float)($opt['bobot'] ?? 0) : (float)$opt;
+                        }
+
+                        // Cari bobot tertinggi opsi sebagai dasar normalisasi
+                        $maxBobot = 0;
+                        if (is_array($pilihan)) {
+                            foreach ($pilihan as $k => $v) {
+                                $b = is_array($v) ? (float)($v['bobot'] ?? 0) : (float)$v;
+                                if ($b > $maxBobot) $maxBobot = $b;
+                            }
+                        }
+
+                        $soalBobot = $s->bobot_nilai > 0 ? (float)$s->bobot_nilai : ($maxBobot > 0 ? $maxBobot : 1);
+                        if ($maxBobot > 0) {
+                            $skorDidapat += ($selectedBobot / $maxBobot) * $soalBobot;
+                        }
                     } else {
                         // Pilihan Ganda & TTS: Penilaian biner
                         $kunci = strtoupper(trim((string) $s->kunci_jawaban));
@@ -215,10 +252,18 @@ class KuisController extends Controller
             }
 
             $isPreTest = ($kuis->tipe_kuis === 'pre_test');
+            $hasOnlyWeighted = $kuis->soalKuis->count() > 0 && $kuis->soalKuis->every(fn($s) => $s->tipe_soal === 'pilihan_berbobot');
+            $isKuisBerbobot = ($kuis->tipe_kuis === 'kuis_berbobot') || $hasOnlyWeighted;
             $allBobot = $kuis->soalKuis->sum('bobot_nilai');
             $nilaiAkhir = $allBobot > 0 ? round(($skorDidapat / $allBobot) * 100, 2) : 0;
-            // Untuk Pre-test, tidak ada syarat kelulusan nilai (selalu lulus agar materi terbuka)
-            $apakahLulus = $isPreTest ? true : ($nilaiAkhir >= $kuis->nilai_kelulusan);
+            
+            // Penentuan kelulusan
+            if ($isPreTest || $isKuisBerbobot) {
+                // Pre-test dan Kuis Berbobot tidak ada konsep salah/benar atau tidak lulus
+                $apakahLulus = true;
+            } else {
+                $apakahLulus = ($nilaiAkhir >= $kuis->nilai_kelulusan);
+            }
 
             $percobaanKe = $percobaanCount + 1;
 
@@ -234,14 +279,22 @@ class KuisController extends Controller
             ]);
 
             if ($apakahLulus) {
-                // Update progress pembelajaran jika lulus kuis
+                // Update progress pembelajaran jika kuis selesai
                 $this->updateProgress($lockedPendaftaran, $id);
             }
 
+            $successMsg = 'Kuis berhasil disubmit';
+            if ($isPreTest) {
+                $successMsg = 'Pre-test berhasil diselesaikan';
+            } elseif ($isKuisBerbobot) {
+                $successMsg = 'Kuis Nilai Berbobot berhasil diselesaikan';
+            }
+
             return response()->json([
-                'message' => $isPreTest ? 'Pre-test berhasil diselesaikan' : 'Kuis berhasil disubmit',
+                'message' => $successMsg,
                 'data' => [
-                    'tipe_kuis' => $kuis->tipe_kuis,
+                    'tipe_kuis' => $isKuisBerbobot ? 'kuis_berbobot' : $kuis->tipe_kuis,
+                    'is_kuis_berbobot' => $isKuisBerbobot,
                     'nilai' => $nilaiAkhir,
                     'apakah_lulus' => $apakahLulus,
                     'percobaan_ke' => $percobaanKe,
@@ -298,7 +351,7 @@ class KuisController extends Controller
         // Cek modul sebelumnya
         $prevModuls = Modul::where('pembelajaran_id', $courseId)
             ->where('urutan', '<', $currentModul->urutan)
-            ->with(['materi', 'kuis'])
+            ->with(['materi', 'kuis', 'kuisBerbobot'])
             ->get();
 
         foreach ($prevModuls as $pm) {
@@ -320,6 +373,17 @@ class KuisController extends Controller
 
                 if (!$isPassed) {
                     return 'Anda harus lulus kuis pada modul sebelumnya terlebih dahulu.';
+                }
+            }
+
+            if ($pm->kuisBerbobot) {
+                $isPassedKb = RiwayatKuis::where('pendaftaran_id', $pendaftaran->pendaftaran_id)
+                    ->where('kuis_id', $pm->kuisBerbobot->kuis_id)
+                    ->where('apakah_lulus', true)
+                    ->exists();
+
+                if (!$isPassedKb) {
+                    return 'Anda harus menyelesaikan kuis berbobot pada modul sebelumnya terlebih dahulu.';
                 }
             }
         }
@@ -346,7 +410,7 @@ class KuisController extends Controller
             return null;
         }
 
-        // Cek semua materi di modul saat ini (hanya untuk Evaluasi Modul)
+        // Cek semua materi di modul saat ini (untuk Evaluasi Modul & Kuis Berbobot)
         $materiIds = Materi::where('modul_id', $modulId)->pluck('materi_id');
         if ($materiIds->count() > 0) {
             $completedCount = ProgresMateri::where('pendaftaran_id', $pendaftaran->pendaftaran_id)

@@ -20,7 +20,7 @@ class CourseDetailController extends Controller
         $pembelajaran = Pembelajaran::with([
             'kategoriKursus',
             'modul' => function ($q) {
-                $q->orderBy('urutan', 'asc')->with(['materi.preTest.soalKuis', 'kuis.soalKuis']);
+                $q->orderBy('urutan', 'asc')->with(['materi.preTest.soalKuis', 'kuis.soalKuis', 'kuisBerbobot.soalKuis', 'semuaKuis.soalKuis']);
             },
             'postTest',
             'pembelajaranJp'
@@ -103,12 +103,27 @@ class CourseDetailController extends Controller
                 $isKuisLocked = $isCourseLockedReview || $isModuleLocked || !$allMateriInThisModulDone;
             }
 
-            // Status kelulusan modul untuk menentukan apakah modul berikutnya terbuka
-            if ($m->kuis) {
-                $isPreviousModulePassed = $allMateriInThisModulDone && $isKuisCompleted;
-            } else {
-                $isPreviousModulePassed = $allMateriInThisModulDone;
+            $kuisBerbobot = $m->kuisBerbobot ?? ($m->semuaKuis ? $m->semuaKuis->where('tipe_kuis', 'kuis_berbobot')->first() : null);
+            $isKuisBerbobotCompleted = false;
+            $isKuisBerbobotLocked = true;
+            if ($kuisBerbobot) {
+                $isKuisBerbobotCompleted = $pendaftaran ? \App\Models\RiwayatKuis::where('pendaftaran_id', $pendaftaran->pendaftaran_id)
+                    ->where('kuis_id', $kuisBerbobot->kuis_id)
+                    ->where('apakah_lulus', true)
+                    ->exists() : false;
+                
+                $isKuisBerbobotLocked = $isCourseLockedReview || $isModuleLocked || !$allMateriInThisModulDone;
             }
+
+            // Status kelulusan modul untuk menentukan apakah modul berikutnya terbuka
+            $isModuleQuizPassed = true;
+            if ($m->kuis) {
+                $isModuleQuizPassed = $isModuleQuizPassed && $isKuisCompleted;
+            }
+            if ($kuisBerbobot) {
+                $isModuleQuizPassed = $isModuleQuizPassed && $isKuisBerbobotCompleted;
+            }
+            $isPreviousModulePassed = $allMateriInThisModulDone && $isModuleQuizPassed;
 
             return [
                 'modul_id' => $m->modul_id,
@@ -123,6 +138,14 @@ class CourseDetailController extends Controller
                     'is_completed' => $isKuisCompleted,
                     'is_locked' => $isKuisLocked,
                     'tipe_soal_list' => $m->kuis->soalKuis ? $m->kuis->soalKuis->pluck('tipe_soal')->unique()->values()->all() : []
+                ] : null,
+                'kuis_berbobot' => $kuisBerbobot ? [
+                    'kuis_id' => $kuisBerbobot->kuis_id,
+                    'judul' => $kuisBerbobot->judul_kuis,
+                    'durasi' => $kuisBerbobot->durasi_menit,
+                    'is_completed' => $isKuisBerbobotCompleted,
+                    'is_locked' => $isKuisBerbobotLocked,
+                    'tipe_soal_list' => $kuisBerbobot->soalKuis ? $kuisBerbobot->soalKuis->pluck('tipe_soal')->unique()->values()->all() : []
                 ] : null
             ];
         });

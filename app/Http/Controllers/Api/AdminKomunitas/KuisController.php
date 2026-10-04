@@ -32,7 +32,9 @@ class KuisController extends Controller
             $query->where('tipe_kuis', $request->tipe_kuis);
         } else {
             // Default mengambil evaluasi_modul jika tidak ditentukan
-            $query->where('tipe_kuis', 'evaluasi_modul');
+            $query->where(function($q) {
+                $q->where('tipe_kuis', 'evaluasi_modul')->orWhereNull('tipe_kuis');
+            });
         }
 
         $kuis = $query->with('soalKuis')->first();
@@ -69,6 +71,8 @@ class KuisController extends Controller
                 return response()->json(['message' => 'Materi tidak ditemukan dalam modul ini.'], 404);
             }
             $existingKuis = \App\Models\Kuis::where('materi_id', $materiId)->where('tipe_kuis', 'pre_test')->first();
+        } elseif ($tipeKuis === 'kuis_berbobot') {
+            $existingKuis = \App\Models\Kuis::where('modul_id', $modul_id)->where('tipe_kuis', 'kuis_berbobot')->first();
         } else {
             $existingKuis = \App\Models\Kuis::where('modul_id', $modul_id)
                 ->where(function ($q) {
@@ -76,26 +80,26 @@ class KuisController extends Controller
                 })->first();
         }
 
-        // Jika kuis evaluasi atau pre-test sudah ada, otomatis perbarui (update) kuis yang sudah ada
+        // Jika kuis evaluasi, kuis berbobot, atau pre-test sudah ada, otomatis perbarui (update) kuis yang sudah ada
         if ($existingKuis) {
             return $this->update($request, $existingKuis->kuis_id);
         }
 
         $request->validate([
             'judul_kuis' => 'required|string|max:200',
-            'tipe_kuis' => 'nullable|in:evaluasi_modul,pre_test',
+            'tipe_kuis' => 'nullable|in:evaluasi_modul,pre_test,kuis_berbobot',
             'materi_id' => 'nullable|exists:materi,materi_id',
             'durasi_menit' => 'nullable|integer|min:1|max:300',
-            'nilai_kelulusan' => $tipeKuis === 'pre_test' ? 'nullable|numeric|min:0|max:100' : 'required|numeric|min:0|max:100',
+            'nilai_kelulusan' => in_array($tipeKuis, ['pre_test', 'kuis_berbobot']) ? 'nullable|numeric|min:0|max:100' : 'required|numeric|min:0|max:100',
             'maks_percobaan' => 'nullable|integer|min:1|max:3',
             'acak_soal' => 'nullable|boolean',
             'tampilkan_kunci_setelah' => 'nullable|boolean',
             'grid_config_json' => 'nullable',
             'soal' => 'nullable|array',
-            'soal.*.tipe_soal' => 'nullable|in:pilihan_ganda,tts,drag_drop',
+            'soal.*.tipe_soal' => 'nullable|in:pilihan_ganda,tts,drag_drop,pilihan_berbobot',
             'soal.*.teks_soal' => 'required|string',
             'soal.*.pilihan_jawaban_json' => 'nullable',
-            'soal.*.kunci_jawaban' => 'required|string|max:255',
+            'soal.*.kunci_jawaban' => 'nullable|string|max:255',
             'soal.*.arah' => 'nullable|in:mendatar,menurun',
             'soal.*.nomor_urut' => 'nullable|integer|min:1',
             'soal.*.baris_mulai' => 'nullable|integer|min:0',
@@ -132,17 +136,39 @@ class KuisController extends Controller
                             : $item['pilihan_jawaban_json'];
                     }
 
+                    $tipeSoal = $item['tipe_soal'] ?? 'pilihan_ganda';
+                    $kunci = $item['kunci_jawaban'] ?? null;
+                    $bobot = isset($item['bobot_nilai']) && is_numeric($item['bobot_nilai']) ? (float)$item['bobot_nilai'] : 1;
+
+                    if ($tipeSoal === 'pilihan_berbobot') {
+                        if (empty($kunci) && is_array($pilihan)) {
+                            $highestKey = 'A';
+                            $maxB = -1;
+                            foreach ($pilihan as $k => $v) {
+                                $b = is_array($v) ? (float)($v['bobot'] ?? 0) : (float)$v;
+                                if ($b > $maxB) {
+                                    $maxB = $b;
+                                    $highestKey = (string)$k;
+                                }
+                            }
+                            $kunci = $highestKey;
+                            if (!isset($item['bobot_nilai']) && $maxB > 0) {
+                                $bobot = $maxB;
+                            }
+                        }
+                    }
+
                     \App\Models\SoalKuis::create([
                         'kuis_id' => $kuis->kuis_id,
-                        'tipe_soal' => $item['tipe_soal'] ?? 'pilihan_ganda',
+                        'tipe_soal' => $tipeSoal,
                         'teks_soal' => $item['teks_soal'],
                         'pilihan_jawaban_json' => $pilihan,
-                        'kunci_jawaban' => $item['kunci_jawaban'],
+                        'kunci_jawaban' => $kunci ?? '-',
                         'arah' => $item['arah'] ?? null,
                         'nomor_urut' => $item['nomor_urut'] ?? null,
                         'baris_mulai' => $item['baris_mulai'] ?? null,
                         'kolom_mulai' => $item['kolom_mulai'] ?? null,
-                        'bobot_nilai' => $item['bobot_nilai'] ?? 1,
+                        'bobot_nilai' => $bobot,
                     ]);
                 }
             }
@@ -194,16 +220,16 @@ class KuisController extends Controller
         $request->validate([
             'judul_kuis' => 'sometimes|string|max:200',
             'durasi_menit' => 'nullable|integer|min:1|max:300',
-            'nilai_kelulusan' => 'sometimes|numeric|min:0|max:100',
+            'nilai_kelulusan' => 'nullable|numeric|min:0|max:100',
             'maks_percobaan' => 'sometimes|integer|min:1|max:3',
             'acak_soal' => 'sometimes|boolean',
             'tampilkan_kunci_setelah' => 'sometimes|boolean',
             'grid_config_json' => 'nullable',
             'soal' => 'nullable|array', // jika dikirim, akan mereplace/sync seluruh soal
-            'soal.*.tipe_soal' => 'nullable|in:pilihan_ganda,tts,drag_drop',
+            'soal.*.tipe_soal' => 'nullable|in:pilihan_ganda,tts,drag_drop,pilihan_berbobot',
             'soal.*.teks_soal' => 'required|string',
             'soal.*.pilihan_jawaban_json' => 'nullable',
-            'soal.*.kunci_jawaban' => 'required|string|max:255',
+            'soal.*.kunci_jawaban' => 'nullable|string|max:255',
             'soal.*.arah' => 'nullable|in:mendatar,menurun',
             'soal.*.nomor_urut' => 'nullable|integer|min:1',
             'soal.*.baris_mulai' => 'nullable|integer|min:0',
@@ -239,17 +265,39 @@ class KuisController extends Controller
                             : $item['pilihan_jawaban_json'];
                     }
 
+                    $tipeSoal = $item['tipe_soal'] ?? 'pilihan_ganda';
+                    $kunci = $item['kunci_jawaban'] ?? null;
+                    $bobot = isset($item['bobot_nilai']) && is_numeric($item['bobot_nilai']) ? (float)$item['bobot_nilai'] : 1;
+
+                    if ($tipeSoal === 'pilihan_berbobot') {
+                        if (empty($kunci) && is_array($pilihan)) {
+                            $highestKey = 'A';
+                            $maxB = -1;
+                            foreach ($pilihan as $k => $v) {
+                                $b = is_array($v) ? (float)($v['bobot'] ?? 0) : (float)$v;
+                                if ($b > $maxB) {
+                                    $maxB = $b;
+                                    $highestKey = (string)$k;
+                                }
+                            }
+                            $kunci = $highestKey;
+                            if (!isset($item['bobot_nilai']) && $maxB > 0) {
+                                $bobot = $maxB;
+                            }
+                        }
+                    }
+
                     \App\Models\SoalKuis::create([
                         'kuis_id' => $kuis->kuis_id,
-                        'tipe_soal' => $item['tipe_soal'] ?? 'pilihan_ganda',
+                        'tipe_soal' => $tipeSoal,
                         'teks_soal' => $item['teks_soal'],
                         'pilihan_jawaban_json' => $pilihan,
-                        'kunci_jawaban' => $item['kunci_jawaban'],
+                        'kunci_jawaban' => $kunci ?? '-',
                         'arah' => $item['arah'] ?? null,
                         'nomor_urut' => $item['nomor_urut'] ?? null,
                         'baris_mulai' => $item['baris_mulai'] ?? null,
                         'kolom_mulai' => $item['kolom_mulai'] ?? null,
-                        'bobot_nilai' => $item['bobot_nilai'] ?? 1,
+                        'bobot_nilai' => $bobot,
                     ]);
                 }
             }

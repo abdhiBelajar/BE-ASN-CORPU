@@ -24,7 +24,7 @@ class ModulController extends Controller
 
         $moduls = \App\Models\Modul::where('pembelajaran_id', $pembelajaran_id)
                     ->orderBy('urutan', 'asc')
-                    ->with('materi.preTest.soalKuis', 'kuis.soalKuis')
+                    ->with('materi.preTest.soalKuis', 'kuis.soalKuis', 'kuisBerbobot.soalKuis', 'semuaKuis.soalKuis')
                     ->get();
 
         return response()->json([
@@ -102,13 +102,13 @@ class ModulController extends Controller
 
         return response()->json([
             'message' => 'Modul berhasil ditambahkan',
-            'data' => $modul->load('materi', 'kuis.soalKuis')
+            'data' => $modul->load('materi', 'kuis.soalKuis', 'kuisBerbobot.soalKuis', 'semuaKuis.soalKuis')
         ], 201);
     }
 
     public function show(Request $request, $id)
     {
-        $modul = \App\Models\Modul::with('materi', 'kuis.soalKuis')->findOrFail($id);
+        $modul = \App\Models\Modul::with('materi', 'kuis.soalKuis', 'kuisBerbobot.soalKuis', 'semuaKuis.soalKuis')->findOrFail($id);
 
         if (!$this->isPembelajaranAdmin($request->user(), $modul->pembelajaran_id)) {
             return response()->json(['message' => 'Akses ditolak.'], 403);

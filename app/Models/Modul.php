@@ -62,6 +62,11 @@ class Modul extends Model
         });
     }
 
+    public function kuisBerbobot()
+    {
+        return $this->hasOne(Kuis::class, 'modul_id', 'modul_id')->where('tipe_kuis', 'kuis_berbobot');
+    }
+
     public function semuaKuis()
     {
         return $this->hasMany(Kuis::class, 'modul_id', 'modul_id');
